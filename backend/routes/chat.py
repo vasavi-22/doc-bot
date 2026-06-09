@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify
 from services.rag_pipeline import query_rag
+from utils.logger import logger
 
 chat_bp = Blueprint("chat", __name__)
 
@@ -10,6 +11,7 @@ def chat():
 
         # ✅ Validate input
         if not data or "message" not in data:
+            logger.info("Chat request received")
             return jsonify({"error": "Message is required"}), 400
 
         question = data["message"]

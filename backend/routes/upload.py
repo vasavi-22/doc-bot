@@ -4,10 +4,16 @@ import os
 from services.document_loader import load_pdf
 from services.embeddings import create_embeddings
 from services.vector_store import store_vectors
+from config import Config
+from utils.logger import logger
+from werkzeug.utils import secure_filename
+import uuid
+from services.document_metadata import save_document_metadata
 
 upload_bp = Blueprint("upload", __name__)
 
-UPLOAD_FOLDER = "data/uploads"
+UPLOAD_FOLDER = Config.UPLOAD_FOLDER
+MAX_FILE_SIZE_MB = Config.MAX_FILE_SIZE_MB
 
 # ✅ Ensure folder exists
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -24,23 +30,37 @@ def upload_file():
         if file.filename == "":
             return jsonify({"error": "Empty filename"}), 400
 
-        path = os.path.join(UPLOAD_FOLDER, file.filename)
+        if not allowed_file(file.filename):
+            return jsonify({"error":"Only PDF files allowed"}),400
+
+        safe_filename = secure_filename(file.filename)
+        unique_filename = (f"{uuid.uuid4()}_{safe_filename}")
+        path = os.path.join(UPLOAD_FOLDER, unique_filename)
         file.save(path)
 
         # process document
         text_chunks = load_pdf(path)
         embeddings = create_embeddings(text_chunks)
         store_vectors(text_chunks, embeddings)
+        save_document_metadata(filename=unique_filename,chunks=len(text_chunks))
 
         return jsonify({
             "message": "File uploaded successfully",
-            "filename": file.filename
+            "filename": unique_filename
         })
 
     except Exception as e:
-        print("UPLOAD ERROR:", str(e))
-        return jsonify({"error": str(e)}), 500
+        logger.error(f"Upload failed: {str(e)}")
+        return jsonify({"error": "Upload failed"}), 500
     
+ALLOWED_EXTENSIONS = {"pdf"}
+
+def allowed_file(filename):
+    return (
+        "." in filename
+        and filename.rsplit(".",1)[1].lower()
+        in ALLOWED_EXTENSIONS
+    )
 
 # 📄 Get all documents
 @upload_bp.route("/documents", methods=["GET"])

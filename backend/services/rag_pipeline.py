@@ -2,11 +2,13 @@ import requests
 from sentence_transformers import SentenceTransformer
 from services.vector_store import query_vectors
 import os
+from config import Config
+from utils.logger import logger
 
-model = SentenceTransformer('all-MiniLM-L6-v2')
+model = SentenceTransformer(Config.EMBEDDING_MODEL)
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-
+GROQ_API_KEY = Config.GROQ_API_KEY
+TOP_K_RESULTS = Config.TOP_K_RESULTS
 
 def query_rag(question):
     try:
@@ -16,8 +18,9 @@ def query_rag(question):
         # 🔹 Step 1: Embedding
         q_embedding = model.encode(question).tolist()
 
+        logger.info("Querying Pinecone")
         # 🔹 Step 2: Retrieve context
-        result = query_vectors(q_embedding, top_k=3)
+        result = query_vectors(q_embedding, top_k=TOP_K_RESULTS)
         matches = result.get("matches", [])
 
         # 🔥 Filter relevant chunks

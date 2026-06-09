@@ -1,4 +1,5 @@
 from pypdf import PdfReader
+from config import Config
 
 def load_pdf(file_path):
     reader = PdfReader(file_path)
@@ -7,10 +8,13 @@ def load_pdf(file_path):
     for page in reader.pages:
         text += page.extract_text() or ""
 
+    if not text.strip():
+        raise Exception("No extractable text found")
+
     return split_text(text)
 
 
-def split_text(text, chunk_size=500, overlap=100):
+def split_text(text, chunk_size=Config.CHUNK_SIZE, overlap=Config.CHUNK_OVERLAP):
     chunks = []
     start = 0
 

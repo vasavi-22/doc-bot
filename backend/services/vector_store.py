@@ -1,12 +1,13 @@
 import os
 from pinecone import Pinecone, ServerlessSpec
 import uuid
+from config import Config
 
-pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
+pc = Pinecone(api_key=Config.PINECONE_API_KEY)
 
-INDEX_NAME = "doc-bot-index"
-DIMENSION = 384
-
+INDEX_NAME = Config.PINECONE_INDEX_NAME
+DIMENSION = Config.DIMENSION
+TOP_K_RESULTS = Config.TOP_K_RESULTS
 
 def init_index():
     existing_indexes = [i["name"] for i in pc.list_indexes()]
@@ -46,7 +47,7 @@ def store_vectors(chunks, embeddings, metadata_list=None):
 
 
 # ✅ ADD THIS (important)
-def query_vectors(query_embedding, top_k=3):
+def query_vectors(query_embedding, top_k=TOP_K_RESULTS):
     index = init_index()
 
     return index.query(
