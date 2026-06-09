@@ -1,94 +1,93 @@
 import requests
 from sentence_transformers import SentenceTransformer
 from services.vector_store import query_vectors
+import os
 
-# Load embedding model
 model = SentenceTransformer('all-MiniLM-L6-v2')
+
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 
 def query_rag(question):
     try:
-        # 🔹 Step 1: Create embedding
+        if not GROQ_API_KEY:
+            return "❌ GROQ_API_KEY not set"
+
+        # 🔹 Step 1: Embedding
         q_embedding = model.encode(question).tolist()
 
-        # 🔹 Step 2: Retrieve from Pinecone
-        result = query_vectors(q_embedding, top_k=5)
+        # 🔹 Step 2: Retrieve context
+        result = query_vectors(q_embedding, top_k=3)
         matches = result.get("matches", [])
 
-        # 🔹 Step 3: Filter relevant chunks
+        # 🔥 Filter relevant chunks
         context_chunks = [
             match["metadata"]["text"]
             for match in matches
-            if match["score"] > 0.6
+            if match.get("score", 0) > 0.75
         ]
 
-        context = "\n\n".join(context_chunks)
+        context = "\n\n".join(context_chunks)[:1500]
 
-        # 🔥 Step 4: Model selection
+        # 🔥 Prompt logic
         if context.strip():
-            model_name = "phi3"   # better reasoning for RAG
-
-            prompt = f"""
-You are an intelligent AI assistant.
+            system_prompt = """You are an AI assistant.
 
 Answer ONLY from the provided context.
-
-If the answer is not in the context, say:
+If answer not found, say:
 "I don't know based on the provided documents."
 
-Format your response like ChatGPT:
-- Use headings
-- Use bullet points
-- Use emojis where helpful
-- Keep it clear and structured
-
+Format:
+- Headings
+- Bullet points
+- Clear and concise
+"""
+            user_content = f"""
 Context:
 {context}
 
 Question:
 {question}
-
-Answer:
 """
         else:
-            model_name = "phi"  # fast fallback
+            system_prompt = """You are a ChatGPT-like assistant.
 
-            prompt = f"""
-You are a helpful AI assistant.
-
-Answer the question clearly and in a structured way like ChatGPT.
-
-- Use headings
-- Use bullet points
-- Use emojis
-- Be concise but informative
-
-Question:
-{question}
-
-Answer:
+Give clear, structured answers:
+- Headings
+- Bullet points
+- Examples
+- Concise
 """
+            user_content = f"Question:\n{question}"
 
-        # 🔹 Step 5: Call Ollama
+        # 🔹 Step 4: API call
         response = requests.post(
-            "http://localhost:11434/api/generate",
-            json={
-                "model": model_name,
-                "prompt": prompt,
-                "stream": False
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "Content-Type": "application/json"
             },
-            timeout=60
+            json={
+                "model": "llama-3.3-70b-versatile",
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content}
+                ],
+                "temperature": 0.3,
+                "max_tokens": 200
+            },
+            timeout=30
         )
 
         data = response.json()
 
-        # 🔥 Step 6: Safe handling
-        if "response" in data:
-            return data["response"]
+        # 🔥 Safe response handling
+        if "choices" in data:
+            return data["choices"][0]["message"]["content"]
         elif "error" in data:
-            return f"❌ Ollama Error: {data['error']}"
+            return f"❌ Groq API Error: {data['error']['message']}"
         else:
             return f"⚠️ Unexpected response: {data}"
 
     except Exception as e:
-        return f"❌ Internal Error: {str(e)}"
+        return f"❌ Error: {str(e)}"
