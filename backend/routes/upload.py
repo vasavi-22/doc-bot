@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify
 import os
 
 from services.document_loader import load_pdf
-from services.embeddings import create_embeddings
+# from services.embeddings import create_embeddings
 from services.vector_store import store_vectors
 from config import Config
 from utils.logger import logger
@@ -40,8 +40,8 @@ def upload_file():
 
         # process document
         text_chunks = load_pdf(path)
-        embeddings = create_embeddings(text_chunks)
-        store_vectors(text_chunks, embeddings)
+        # embeddings = create_embeddings(text_chunks)
+        # store_vectors(text_chunks, embeddings)
         save_document_metadata(filename=unique_filename,chunks=len(text_chunks))
 
         return jsonify({
