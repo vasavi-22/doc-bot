@@ -1,13 +1,12 @@
 import requests
-from sentence_transformers import SentenceTransformer
+# from sentence_transformers import SentenceTransformer
 from services.vector_store import query_vectors
-import os
 from config import Config
 from utils.logger import logger
 from services.model_loader import get_model
 
 # model = SentenceTransformer(Config.EMBEDDING_MODEL)
-model = get_model()
+# model = get_model()
 
 GROQ_API_KEY = Config.GROQ_API_KEY
 TOP_K_RESULTS = Config.TOP_K_RESULTS
