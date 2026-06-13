@@ -12,7 +12,19 @@ from database import init_db
 init_db()
 
 app = Flask(__name__)
-CORS(app)
+
+CORS(
+    app,
+    resources={
+        r"/*": {
+            "origins": [
+                "http://localhost:3000",  # Next.js local
+                "http://localhost:5173",  # Vite local (if needed)
+                "https://doc-bot-frontend.vercel.app"
+            ]
+        }
+    }
+)
 
 app.config["MAX_CONTENT_LENGTH"] = Config.MAX_FILE_SIZE_MB * 1024 * 1024
 
