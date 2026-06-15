@@ -11,10 +11,13 @@ def init_db():
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS documents (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            document_id TEXT PRIMARY KEY,
             filename TEXT NOT NULL,
             upload_time TEXT NOT NULL,
-            chunks INTEGER NOT NULL
+            chunks INTEGER NOT NULL,
+            owner TEXT,
+            category TEXT,
+            tags TEXT
         )
     """)
 

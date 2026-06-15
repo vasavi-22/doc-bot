@@ -16,8 +16,12 @@ def chat():
 
         question = data["message"]
 
+        document_id = data.get("document_id")
+        category = data.get("category")
+        owner = data.get("owner")
+
         # 🔥 Get AI response
-        answer = query_rag(question)
+        answer = query_rag(question=question, document_id=document_id, category=category, owner=owner)
 
         return jsonify({
             "success": True,

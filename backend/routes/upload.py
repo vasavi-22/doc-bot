@@ -9,6 +9,7 @@ from utils.logger import logger
 from werkzeug.utils import secure_filename
 import uuid
 from services.document_metadata import save_document_metadata
+from services.chunk_metadata import build_chunk_metadata
 
 upload_bp = Blueprint("upload", __name__)
 
@@ -39,13 +40,38 @@ def upload_file():
         file.save(path)
 
         # process document
-        text_chunks = load_pdf(path)
-        embeddings = create_embeddings(text_chunks)
-        store_vectors(text_chunks, embeddings)
-        save_document_metadata(filename=unique_filename,chunks=len(text_chunks))
+        # text_chunks = load_pdf(path)
+        # embeddings = create_embeddings(text_chunks)
+        # store_vectors(text_chunks, embeddings)
+        # save_document_metadata(filename=unique_filename,chunks=len(text_chunks))
+        chunks = load_pdf(path)
+        texts = [c["text"] for c in chunks]
+
+        metadata = build_chunk_metadata(
+            chunks=chunks,
+            document_id=document_id,
+            filename=safe_filename,
+            owner="default",
+            category="general"
+        )
+        embeddings = create_embeddings(texts)
+        store_vectors(
+            texts,
+            embeddings,
+            metadata
+        )
+        save_document_metadata(
+            document_id=document_id,
+            filename=unique_filename,
+            chunks=len(texts),
+            owner="default",
+            category="general",
+            tags=""
+        )
 
         return jsonify({
             "message": "File uploaded successfully",
+            "document_id": document_id,
             "filename": unique_filename
         })
 
