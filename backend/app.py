@@ -19,8 +19,8 @@ CORS(
         r"/*": {
             "origins": [
                 "http://localhost:3000",  # Next.js local
-                "http://localhost:5173",  # Vite local (if needed)
-                "https://doc-bot-frontend.vercel.app"
+                "http://localhost:5173",  # Vite local
+                "https://doc-bot-frontend.vercel.app" # production
             ]
         }
     }
@@ -35,6 +35,12 @@ app.register_blueprint(chat_bp)
 def health():
     return {
         "status": "healthy"
+    }, 200
+
+@app.route("/")
+def home():
+    return {
+        "message": "Smart Document Q&A Chatbot backend is running"
     }, 200
 
 if __name__ == "__main__":

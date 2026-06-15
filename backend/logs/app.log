@@ -121,3 +121,83 @@
 2026-06-11 15:54:12,225 - INFO - HTTP Request: GET https://huggingface.co/api/models/sentence-transformers/all-MiniLM-L6-v2 "HTTP/1.1 200 OK"
 2026-06-11 15:54:12,276 - WARNING -  * Debugger is active!
 2026-06-11 15:54:12,289 - INFO -  * Debugger PIN: 145-393-098
+2026-06-16 00:02:48,132 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.1.55:5000
+2026-06-16 00:02:48,133 - INFO - [33mPress CTRL+C to quit[0m
+2026-06-16 00:02:48,137 - INFO -  * Restarting with stat
+2026-06-16 00:02:49,799 - WARNING -  * Debugger is active!
+2026-06-16 00:02:49,812 - INFO -  * Debugger PIN: 145-393-098
+2026-06-16 00:13:34,099 - INFO - 127.0.0.1 - - [16/Jun/2026 00:13:34] "[33mGET / HTTP/1.1[0m" 404 -
+2026-06-16 00:13:34,228 - INFO - 127.0.0.1 - - [16/Jun/2026 00:13:34] "[33mGET /favicon.ico HTTP/1.1[0m" 404 -
+2026-06-16 00:13:55,988 - INFO - 127.0.0.1 - - [16/Jun/2026 00:13:55] "[33mGET /healthy HTTP/1.1[0m" 404 -
+2026-06-16 00:13:58,129 - INFO - 127.0.0.1 - - [16/Jun/2026 00:13:58] "[33mGET /healthy HTTP/1.1[0m" 404 -
+2026-06-16 00:14:01,201 - INFO - 127.0.0.1 - - [16/Jun/2026 00:14:01] "[33mGET /healthy HTTP/1.1[0m" 404 -
+2026-06-16 00:14:02,375 - INFO - 127.0.0.1 - - [16/Jun/2026 00:14:02] "[33mGET /healthy HTTP/1.1[0m" 404 -
+2026-06-16 00:14:02,696 - INFO - 127.0.0.1 - - [16/Jun/2026 00:14:02] "[33mGET /healthy HTTP/1.1[0m" 404 -
+2026-06-16 00:14:02,879 - INFO - 127.0.0.1 - - [16/Jun/2026 00:14:02] "[33mGET /healthy HTTP/1.1[0m" 404 -
+2026-06-16 00:14:03,130 - INFO - 127.0.0.1 - - [16/Jun/2026 00:14:03] "[33mGET /healthy HTTP/1.1[0m" 404 -
+2026-06-16 00:14:06,579 - INFO - 127.0.0.1 - - [16/Jun/2026 00:14:06] "[33mGET / HTTP/1.1[0m" 404 -
+2026-06-16 00:15:28,048 - INFO - 127.0.0.1 - - [16/Jun/2026 00:15:28] "[33mGET / HTTP/1.1[0m" 404 -
+2026-06-16 00:15:28,209 - INFO - 127.0.0.1 - - [16/Jun/2026 00:15:28] "[33mGET /favicon.ico HTTP/1.1[0m" 404 -
+2026-06-16 00:16:57,898 - INFO - 127.0.0.1 - - [16/Jun/2026 00:16:57] "GET /health HTTP/1.1" 200 -
+2026-06-16 00:17:44,417 - INFO -  * Detected change in 'C:\\Users\\Lucky33\\Documents\\GitHub\\doc-bot\\backend\\app.py', reloading
+2026-06-16 00:18:49,547 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.1.55:5000
+2026-06-16 00:18:49,547 - INFO - [33mPress CTRL+C to quit[0m
+2026-06-16 00:18:49,553 - INFO -  * Restarting with stat
+2026-06-16 00:18:51,070 - WARNING -  * Debugger is active!
+2026-06-16 00:18:51,088 - INFO -  * Debugger PIN: 145-393-098
+2026-06-16 00:19:03,222 - INFO - 127.0.0.1 - - [16/Jun/2026 00:19:03] "GET / HTTP/1.1" 200 -
+2026-06-16 00:19:49,952 - INFO - 127.0.0.1 - - [16/Jun/2026 00:19:49] "GET /documents HTTP/1.1" 200 -
+2026-06-16 00:19:50,216 - INFO - 127.0.0.1 - - [16/Jun/2026 00:19:50] "GET /documents HTTP/1.1" 200 -
+2026-06-16 00:20:05,071 - INFO - 127.0.0.1 - - [16/Jun/2026 00:20:05] "GET /documents HTTP/1.1" 200 -
+2026-06-16 00:20:05,316 - INFO - 127.0.0.1 - - [16/Jun/2026 00:20:05] "GET /documents HTTP/1.1" 200 -
+2026-06-16 00:20:05,380 - INFO - 127.0.0.1 - - [16/Jun/2026 00:20:05] "GET /documents HTTP/1.1" 200 -
+2026-06-16 00:20:10,154 - INFO - 127.0.0.1 - - [16/Jun/2026 00:20:10] "OPTIONS /chat HTTP/1.1" 200 -
+2026-06-16 00:21:25,168 - INFO - 127.0.0.1 - - [16/Jun/2026 00:21:25] "GET /documents HTTP/1.1" 200 -
+2026-06-16 00:21:25,433 - INFO - 127.0.0.1 - - [16/Jun/2026 00:21:25] "GET /documents HTTP/1.1" 200 -
+2026-06-16 00:21:25,481 - INFO - 127.0.0.1 - - [16/Jun/2026 00:21:25] "GET /documents HTTP/1.1" 200 -
+2026-06-16 00:21:33,979 - INFO - 127.0.0.1 - - [16/Jun/2026 00:21:33] "GET /documents HTTP/1.1" 200 -
+2026-06-16 00:21:34,289 - INFO - 127.0.0.1 - - [16/Jun/2026 00:21:34] "GET /documents HTTP/1.1" 200 -
+2026-06-16 00:21:37,580 - INFO - 127.0.0.1 - - [16/Jun/2026 00:21:37] "GET /documents HTTP/1.1" 200 -
+2026-06-16 00:21:37,861 - INFO - 127.0.0.1 - - [16/Jun/2026 00:21:37] "GET /documents HTTP/1.1" 200 -
+2026-06-16 00:21:39,466 - INFO - 127.0.0.1 - - [16/Jun/2026 00:21:39] "GET /documents HTTP/1.1" 200 -
+2026-06-16 00:21:39,780 - INFO - 127.0.0.1 - - [16/Jun/2026 00:21:39] "GET /documents HTTP/1.1" 200 -
+2026-06-16 00:21:43,763 - INFO - 127.0.0.1 - - [16/Jun/2026 00:21:43] "GET /documents HTTP/1.1" 200 -
+2026-06-16 00:21:44,028 - INFO - 127.0.0.1 - - [16/Jun/2026 00:21:44] "GET /documents HTTP/1.1" 200 -
+2026-06-16 00:21:46,019 - INFO - 127.0.0.1 - - [16/Jun/2026 00:21:46] "GET /documents HTTP/1.1" 200 -
+2026-06-16 00:21:46,338 - INFO - 127.0.0.1 - - [16/Jun/2026 00:21:46] "GET /documents HTTP/1.1" 200 -
+2026-06-16 00:21:58,531 - INFO - 127.0.0.1 - - [16/Jun/2026 00:21:58] "OPTIONS /chat HTTP/1.1" 200 -
+2026-06-16 00:23:19,852 - INFO - Use pytorch device_name: cpu
+2026-06-16 00:23:19,852 - INFO - Load pretrained SentenceTransformer: all-MiniLM-L6-v2
+2026-06-16 00:23:21,842 - INFO - HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/modules.json "HTTP/1.1 307 Temporary Redirect"
+2026-06-16 00:23:21,845 - WARNING - Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+2026-06-16 00:23:21,868 - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/1110a243fdf4706b3f48f1d95db1a4f5529b4d41/modules.json "HTTP/1.1 200 OK"
+2026-06-16 00:23:22,149 - INFO - HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/config_sentence_transformers.json "HTTP/1.1 307 Temporary Redirect"
+2026-06-16 00:23:22,163 - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/1110a243fdf4706b3f48f1d95db1a4f5529b4d41/config_sentence_transformers.json "HTTP/1.1 200 OK"
+2026-06-16 00:23:22,560 - INFO - HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/config_sentence_transformers.json "HTTP/1.1 307 Temporary Redirect"
+2026-06-16 00:23:22,579 - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/1110a243fdf4706b3f48f1d95db1a4f5529b4d41/config_sentence_transformers.json "HTTP/1.1 200 OK"
+2026-06-16 00:23:22,868 - INFO - HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/README.md "HTTP/1.1 307 Temporary Redirect"
+2026-06-16 00:23:22,885 - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/1110a243fdf4706b3f48f1d95db1a4f5529b4d41/README.md "HTTP/1.1 200 OK"
+2026-06-16 00:23:23,174 - INFO - HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/modules.json "HTTP/1.1 307 Temporary Redirect"
+2026-06-16 00:23:23,190 - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/1110a243fdf4706b3f48f1d95db1a4f5529b4d41/modules.json "HTTP/1.1 200 OK"
+2026-06-16 00:23:23,484 - INFO - HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/sentence_bert_config.json "HTTP/1.1 307 Temporary Redirect"
+2026-06-16 00:23:23,496 - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/1110a243fdf4706b3f48f1d95db1a4f5529b4d41/sentence_bert_config.json "HTTP/1.1 200 OK"
+2026-06-16 00:23:23,889 - INFO - HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/adapter_config.json "HTTP/1.1 404 Not Found"
+2026-06-16 00:23:24,198 - INFO - HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-06-16 00:23:24,210 - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/1110a243fdf4706b3f48f1d95db1a4f5529b4d41/config.json "HTTP/1.1 200 OK"
+2026-06-16 00:23:25,011 - INFO - HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-06-16 00:23:25,024 - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/1110a243fdf4706b3f48f1d95db1a4f5529b4d41/config.json "HTTP/1.1 200 OK"
+2026-06-16 00:23:25,323 - INFO - HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer_config.json "HTTP/1.1 307 Temporary Redirect"
+2026-06-16 00:23:25,339 - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/1110a243fdf4706b3f48f1d95db1a4f5529b4d41/tokenizer_config.json "HTTP/1.1 200 OK"
+2026-06-16 00:23:25,745 - INFO - HTTP Request: GET https://huggingface.co/api/models/sentence-transformers/all-MiniLM-L6-v2/tree/main/additional_chat_templates?recursive=false&expand=false "HTTP/1.1 404 Not Found"
+2026-06-16 00:23:26,015 - INFO - HTTP Request: GET https://huggingface.co/api/models/sentence-transformers/all-MiniLM-L6-v2/tree/main?recursive=true&expand=false "HTTP/1.1 200 OK"
+2026-06-16 00:23:26,549 - INFO - HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/1_Pooling/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-06-16 00:23:26,560 - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/1110a243fdf4706b3f48f1d95db1a4f5529b4d41/1_Pooling%2Fconfig.json "HTTP/1.1 200 OK"
+2026-06-16 00:23:26,859 - INFO - HTTP Request: GET https://huggingface.co/api/models/sentence-transformers/all-MiniLM-L6-v2 "HTTP/1.1 200 OK"
+2026-06-16 00:23:27,119 - INFO - Querying Pinecone
+2026-06-16 00:23:36,809 - INFO - 127.0.0.1 - - [16/Jun/2026 00:23:36] "POST /chat HTTP/1.1" 200 -

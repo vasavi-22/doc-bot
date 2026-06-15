@@ -33,7 +33,6 @@ def store_vectors(chunks, embeddings, metadata_list=None):
 
     for i, embedding in enumerate(embeddings):
         vectors.append({
-            # "id": str(uuid.uuid4()),
             "id": f"{metadata_list[i]['document_id']}_{i}",
             "values": embedding,
             "metadata": {
@@ -47,7 +46,7 @@ def store_vectors(chunks, embeddings, metadata_list=None):
     return {"status": "success", "count": len(vectors)}
 
 
-# ✅ ADD THIS (important)
+# query vectors
 def query_vectors(query_embedding, top_k=TOP_K_RESULTS, filter=None):
     index = init_index()
 

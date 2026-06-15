@@ -7,11 +7,6 @@ def load_pdf(file_path):
     all_chunks = []
     
     text = ""
-    # for page in reader.pages:
-    #     text += page.extract_text() or ""
-
-    # if not text.strip():
-    #     raise Exception("No extractable text found")
     
     for page_num, page in enumerate(reader.pages, start=1):
 
@@ -32,9 +27,6 @@ def load_pdf(file_path):
 
     return all_chunks
 
-    # return split_text(text)
-
-
 def split_text(text, chunk_size=Config.CHUNK_SIZE, overlap=Config.CHUNK_OVERLAP):
     chunks = []
     start = 0
@@ -43,6 +35,6 @@ def split_text(text, chunk_size=Config.CHUNK_SIZE, overlap=Config.CHUNK_OVERLAP)
         end = start + chunk_size
         chunk = text[start:end]
         chunks.append(chunk)
-        start += chunk_size - overlap  # 🔥 overlap
+        start += chunk_size - overlap  # overlap
 
     return chunks

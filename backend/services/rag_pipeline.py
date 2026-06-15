@@ -1,12 +1,8 @@
 import requests
-# from sentence_transformers import SentenceTransformer
 from services.vector_store import query_vectors
 from config import Config
 from utils.logger import logger
 from services.model_loader import get_model
-
-# model = SentenceTransformer(Config.EMBEDDING_MODEL)
-# model = get_model()
 
 GROQ_API_KEY = Config.GROQ_API_KEY
 TOP_K_RESULTS = Config.TOP_K_RESULTS
@@ -14,17 +10,15 @@ TOP_K_RESULTS = Config.TOP_K_RESULTS
 def query_rag(question, document_id=None, category=None, owner=None):
     try:
         if not GROQ_API_KEY:
-            return "❌ GROQ_API_KEY not set"
+            return "GROQ_API_KEY not set"
 
-        # 🔹 Step 1: Embedding
-        # q_embedding = model.encode(question).tolist()
+        # Step 1: Embedding
         q_embedding = get_model().encode(question).tolist()
 
         logger.info("Querying Pinecone")
-        # 🔹 Step 2: Retrieve context
+        # Step 2: Retrieve context
 
         pinecone_filter = {}
-
         if document_id:
             pinecone_filter["document_id"] = document_id
 
@@ -37,14 +31,7 @@ def query_rag(question, document_id=None, category=None, owner=None):
         result = query_vectors(q_embedding, top_k=TOP_K_RESULTS, filter=pinecone_filter if pinecone_filter else None)
         matches = result.get("matches", [])
 
-        # 🔥 Filter relevant chunks
-        # context_chunks = [
-        #     match["metadata"]["text"]
-        #     for match in matches
-        #     if match.get("score", 0) > 0.75
-        # ]
-
-        # context = "\n\n".join(context_chunks)[:1500]
+        # Filter relevant chunks
 
         context_chunks = []
         sources = []
@@ -73,7 +60,7 @@ def query_rag(question, document_id=None, category=None, owner=None):
         context = "\n\n".join(context_chunks)[:2000]
         unique_sources = list(set(sources))
 
-        # 🔥 Prompt logic
+        # Prompt logic
         if context.strip():
             system_prompt = """
 You are an AI assistant specialized in document question answering.
@@ -104,7 +91,7 @@ Give clear, structured answers:
 """
             user_content = f"Question:\n{question}"
 
-        # 🔹 Step 4: API call
+        # Step 4: API call
         response = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
             headers={
@@ -125,9 +112,8 @@ Give clear, structured answers:
 
         data = response.json()
 
-        # 🔥 Safe response handling
+        # Safe response handling
         if "choices" in data:
-            # return data["choices"][0]["message"]["content"]
 
             answer = data["choices"][0]["message"]["content"]
             if unique_sources:
@@ -138,9 +124,9 @@ Give clear, structured answers:
             return answer
 
         elif "error" in data:
-            return f"❌ Groq API Error: {data['error']['message']}"
+            return f"Groq API Error: {data['error']['message']}"
         else:
-            return f"⚠️ Unexpected response: {data}"
+            return f"Unexpected response: {data}"
 
     except Exception as e:
-        return f"❌ Error: {str(e)}"
+        return f"Error: {str(e)}"

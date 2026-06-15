@@ -1,7 +1,6 @@
 from database import get_connection
 from datetime import datetime
 
-
 def save_document_metadata(
     document_id,
     filename,

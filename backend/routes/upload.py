@@ -16,7 +16,7 @@ upload_bp = Blueprint("upload", __name__)
 UPLOAD_FOLDER = Config.UPLOAD_FOLDER
 MAX_FILE_SIZE_MB = Config.MAX_FILE_SIZE_MB
 
-# ✅ Ensure folder exists
+# Ensure folder exists
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 
@@ -40,10 +40,7 @@ def upload_file():
         file.save(path)
 
         # process document
-        # text_chunks = load_pdf(path)
-        # embeddings = create_embeddings(text_chunks)
-        # store_vectors(text_chunks, embeddings)
-        # save_document_metadata(filename=unique_filename,chunks=len(text_chunks))
+        
         chunks = load_pdf(path)
         texts = [c["text"] for c in chunks]
 
@@ -88,14 +85,14 @@ def allowed_file(filename):
         in ALLOWED_EXTENSIONS
     )
 
-# 📄 Get all documents
+# Get all documents
 @upload_bp.route("/documents", methods=["GET"])
 def get_documents():
     files = os.listdir(UPLOAD_FOLDER)
     return jsonify({"documents": files})
 
 
-# ❌ Delete document
+# Delete document
 @upload_bp.route("/documents/<filename>", methods=["DELETE"])
 def delete_document(filename):
     path = os.path.join(UPLOAD_FOLDER, filename)

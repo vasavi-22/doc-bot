@@ -9,7 +9,7 @@ def chat():
     try:
         data = request.get_json()
 
-        # ✅ Validate input
+        # Validate input
         if not data or "message" not in data:
             logger.info("Chat request received")
             return jsonify({"error": "Message is required"}), 400
@@ -20,7 +20,7 @@ def chat():
         category = data.get("category")
         owner = data.get("owner")
 
-        # 🔥 Get AI response
+        # Get AI response
         answer = query_rag(question=question, document_id=document_id, category=category, owner=owner)
 
         return jsonify({
