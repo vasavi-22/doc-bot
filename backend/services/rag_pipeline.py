@@ -1,8 +1,9 @@
 import requests
-from services.vector_store import query_vectors
+# from services.vector_store import query_vectors
+from services.hybrid_retriever import hybrid_search
 from config import Config
 from utils.logger import logger
-from services.model_loader import get_model
+# from services.model_loader import get_model
 
 GROQ_API_KEY = Config.GROQ_API_KEY
 TOP_K_RESULTS = Config.TOP_K_RESULTS
@@ -13,7 +14,8 @@ def query_rag(question, document_id=None, category=None, owner=None):
             return "GROQ_API_KEY not set"
 
         # Step 1: Embedding
-        q_embedding = get_model().encode(question).tolist()
+        # q_embedding = get_model().encode(question).tolist()
+        # removed, because we did the same in hybrid search in hybrid_retriever
 
         logger.info("Querying Pinecone")
         # Step 2: Retrieve context
@@ -28,8 +30,15 @@ def query_rag(question, document_id=None, category=None, owner=None):
         if owner:
             pinecone_filter["owner"] = owner
 
-        result = query_vectors(q_embedding, top_k=TOP_K_RESULTS, filter=pinecone_filter if pinecone_filter else None)
-        matches = result.get("matches", [])
+        # result = query_vectors(q_embedding, top_k=TOP_K_RESULTS, filter=pinecone_filter if pinecone_filter else None)
+        # matches = result.get("matches", [])
+        matches = hybrid_search(
+            question,
+            top_k=TOP_K_RESULTS,
+            document_id=document_id,
+            category=category,
+            owner=owner
+        )
 
         # Filter relevant chunks
 

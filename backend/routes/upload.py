@@ -10,6 +10,7 @@ from werkzeug.utils import secure_filename
 import uuid
 from services.document_metadata import save_document_metadata
 from services.chunk_metadata import build_chunk_metadata
+from database import save_chunks
 
 upload_bp = Blueprint("upload", __name__)
 
@@ -65,6 +66,24 @@ def upload_file():
             category="general",
             tags=""
         )
+
+        chunk_records = []
+
+        for i, chunk in enumerate(chunks):
+
+            metadata = metadata_list[i]
+
+            chunk_records.append((
+                f"{metadata['document_id']}_{i}",
+                metadata["document_id"],
+                chunk,
+                metadata.get("page_number"),
+                metadata.get("filename"),
+                metadata.get("owner"),
+                metadata.get("category")
+            ))
+
+        save_chunks(chunk_records)
 
         return jsonify({
             "message": "File uploaded successfully",
