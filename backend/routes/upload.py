@@ -45,7 +45,9 @@ def upload_file():
         chunks = load_pdf(path)
         texts = [c["text"] for c in chunks]
 
-        metadata = build_chunk_metadata(
+        document_id = str(uuid.uuid4())
+
+        metadata_list = build_chunk_metadata(
             chunks=chunks,
             document_id=document_id,
             filename=safe_filename,
@@ -56,7 +58,7 @@ def upload_file():
         store_vectors(
             texts,
             embeddings,
-            metadata
+            metadata_list
         )
         save_document_metadata(
             document_id=document_id,
@@ -76,7 +78,7 @@ def upload_file():
             chunk_records.append((
                 f"{metadata['document_id']}_{i}",
                 metadata["document_id"],
-                chunk,
+                chunk["text"],
                 metadata.get("page_number"),
                 metadata.get("filename"),
                 metadata.get("owner"),
@@ -93,7 +95,9 @@ def upload_file():
 
     except Exception as e:
         logger.error(f"Upload failed: {str(e)}")
-        return jsonify({"error": "Upload failed"}), 500
+        return jsonify({
+            "error": str(e)
+        }), 500
     
 ALLOWED_EXTENSIONS = {"pdf"}
 

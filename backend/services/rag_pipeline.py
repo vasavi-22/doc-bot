@@ -62,12 +62,24 @@ def query_rag(question, document_id=None, category=None, owner=None):
         """
                 )
 
-                sources.append(
-                f"{filename} (Page {page_number})"
-                )
+                sources.append({
+                    "filename": filename,
+                    "page": page_number
+                })
 
         context = "\n\n".join(context_chunks)[:2000]
-        unique_sources = list(set(sources))
+
+        # unique_sources = list(set(sources))
+        # Remove duplicates
+        seen = set()
+        unique_sources = []
+
+        for source in sources:
+            key = (source["filename"], source["page"])
+
+            if key not in seen:
+                seen.add(key)
+                unique_sources.append(source)
 
         # Prompt logic
         if context.strip():
@@ -125,12 +137,11 @@ Give clear, structured answers:
         if "choices" in data:
 
             answer = data["choices"][0]["message"]["content"]
-            if unique_sources:
-                answer += "\n\n---\n**Sources:**\n"
-
-                for source in unique_sources:
-                    answer += f"- {source}\n"
-            return answer
+            
+            return {
+                "answer": answer,
+                "sources": unique_sources
+            }
 
         elif "error" in data:
             return f"Groq API Error: {data['error']['message']}"

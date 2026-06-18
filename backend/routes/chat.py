@@ -23,10 +23,12 @@ def chat():
         # Get AI response
         answer = query_rag(question=question, document_id=document_id, category=category, owner=owner)
 
-        return jsonify({
-            "success": True,
-            "response": answer
-        })
+        # return jsonify({
+        #     "success": True,
+        #     "response": answer
+        # })
+
+        return jsonify(answer)
 
     except Exception as e:
         return jsonify({

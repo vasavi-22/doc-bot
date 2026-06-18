@@ -1,4 +1,4 @@
-export default function MessageBubble({ role, text }) {
+export default function MessageBubble({ role, text, sources = [] }) {
   const isUser = role === "user";
 
   return (
@@ -12,6 +12,22 @@ export default function MessageBubble({ role, text }) {
       >
         {text}
       </div>
+      {role === "bot" && sources.length > 0 && (
+        <div className="mt-3 border-t border-gray-700 pt-2">
+          <div className="text-xs text-gray-400 font-semibold mb-1">
+            Sources
+          </div>
+
+          {sources.map((source, index) => (
+            <div
+              key={index}
+              className="text-xs text-gray-500"
+            >
+              📄 {source.filename} — Page {source.page}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

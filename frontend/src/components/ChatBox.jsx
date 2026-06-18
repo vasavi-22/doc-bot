@@ -25,7 +25,8 @@ export default function ChatBox() {
 
       addMessage({
         role: "bot",
-        text: res.data.response,
+        text: res.data.answer,
+        sources: res.data.sources || [],
       });
     } catch (err) {
       addMessage({
@@ -44,7 +45,7 @@ export default function ChatBox() {
       <div className="flex-1 overflow-y-auto py-6 pr-2">
         <div className="px-4">
           {messages.map((m, i) => (
-            <MessageBubble key={i} role={m.role} text={m.text} />
+            <MessageBubble key={i} role={m.role} text={m.text} sources={m.sources}/>
           ))}
 
           {loading && <div className="text-gray-400 text-sm">Thinking...</div>}
