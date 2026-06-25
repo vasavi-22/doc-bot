@@ -46,7 +46,7 @@ def query_rag(question, document_id=None, category=None, owner=None):
         sources = []
 
         for match in matches:
-            if match.get("score", 0) > 0.75:
+            if match.get("score", 0) > 0.2:
                 metadata = match["metadata"]
 
                 filename = metadata.get("filename", "Unknown")

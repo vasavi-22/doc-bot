@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, send_from_directory
 import os
 
 from services.document_loader import load_pdf
@@ -114,6 +114,16 @@ def get_documents():
     files = os.listdir(UPLOAD_FOLDER)
     return jsonify({"documents": files})
 
+
+# View/download document
+@upload_bp.route("/documents/<filename>", methods=["GET"])
+def view_document(filename):
+    path = os.path.join(UPLOAD_FOLDER, filename)
+
+    if not os.path.exists(path):
+        return jsonify({"error": "File not found"}), 404
+
+    return send_from_directory(UPLOAD_FOLDER, filename)
 
 # Delete document
 @upload_bp.route("/documents/<filename>", methods=["DELETE"])

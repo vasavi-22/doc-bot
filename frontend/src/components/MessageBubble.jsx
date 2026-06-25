@@ -1,31 +1,34 @@
+import { MessageCircle } from "lucide-react";
+
 export default function MessageBubble({ role, text, sources = [] }) {
   const isUser = role === "user";
 
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"} mb-4`}>
-      <div
-        className={`max-w-xl px-4 py-3 rounded-2xl text-sm leading-relaxed ${
-          isUser
-            ? "bg-blue-600 text-white"
-            : "bg-gray-800 text-gray-200"
-        }`}
-      >
-        {text}
-      </div>
-      {role === "bot" && sources.length > 0 && (
-        <div className="mt-3 border-t border-gray-700 pt-2">
-          <div className="text-xs text-gray-400 font-semibold mb-1">
-            Sources
+    <div className={`flex ${isUser ? "justify-end" : "justify-start"} mb-6`}>
+      {isUser ? (
+        <div className="max-w-[70%] bg-[#2563EB] text-white px-5 py-3 rounded-xl text-sm leading-relaxed">
+          {text}
+        </div>
+      ) : (
+        <div className="max-w-[70%]">
+          <div className="bg-white border border-[#E5E7EB] rounded-xl px-5 py-4 text-sm text-[#374151] leading-relaxed shadow-sm">
+            {text}
           </div>
-
-          {sources.map((source, index) => (
-            <div
-              key={index}
-              className="text-xs text-gray-500"
-            >
-              📄 {source.filename} — Page {source.page}
+          {sources.length > 0 && (
+            <div className="mt-3">
+              <div className="text-xs text-[#9CA3AF] font-medium mb-1.5">Sources</div>
+              <div className="space-y-1">
+                {sources.map((source, index) => (
+                  <div key={index} className="flex items-center gap-1.5 text-xs text-[#6B7280]">
+                    <MessageCircle className="w-3 h-3 text-[#9CA3AF]" />
+                    <span>
+                      {source.filename} — Page {source.page}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
-          ))}
+          )}
         </div>
       )}
     </div>
