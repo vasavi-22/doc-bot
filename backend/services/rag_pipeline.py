@@ -81,36 +81,44 @@ def query_rag(question, document_id=None, category=None, owner=None):
                 seen.add(key)
                 unique_sources.append(source)
 
-        # Prompt logic
         if context.strip():
-            system_prompt = """
-You are an AI assistant specialized in document question answering.
+            # Context found — use it if relevant, but allow LLM knowledge as fallback
+            system_prompt = """\
+You are a helpful AI assistant. Respond naturally and conversationally, like ChatGPT.
 
-Rules:
-1. Answer ONLY from the provided context.
-2. If information is missing, respond:
-   "I don't know based on the provided documents."
-3. Do not hallucinate.
-4. Use headings and bullet points.
-5. Be concise and accurate.
+Guidelines:
+- Answer the question directly. No introductions, headings, or sections.
+- If the provided context is relevant, use the information and MUST cite the exact source
+  filename (e.g., "According to Machine_Learning.pdf..."). Never use vague references
+  like "according to the provided context" or "the document says" — always name the
+  specific file.
+- If the context is NOT relevant or doesn't contain the answer, answer from your own
+  knowledge. Do NOT mention any documents, sources, or filenames.
+- For code questions, provide working examples in markdown code blocks with brief explanation.
+- Keep it concise but thorough. Never say "I couldn't find relevant information".
 """
-            user_content = f"""
-Context:
+            user_content = f"""\
+Context from uploaded documents:
 {context}
 
-Question:
-{question}
-"""
-        else:
-            system_prompt = """You are a ChatGPT-like assistant.
+Question: {question}
 
-Give clear, structured answers:
-- Headings
-- Bullet points
-- Examples
-- Concise
+Answer naturally. If the context above is relevant, use it and cite the EXACT source filename. If not, answer from your own knowledge — do NOT mention any documents or sources.
 """
-            user_content = f"Question:\n{question}"
+            temperature = 0.3
+        else:
+            # No context found — use LLM's own knowledge
+            system_prompt = """\
+You are a helpful AI assistant. Respond naturally and conversationally, like ChatGPT.
+
+Guidelines:
+- Answer the question directly and concisely. No introductions, headings, or sections.
+- For code questions, provide working examples in markdown code blocks with brief explanation.
+- Keep it natural. Use **bold** sparingly for emphasis only.
+- Never say "I couldn't find relevant information" — this is a general knowledge question.
+"""
+            user_content = question
+            temperature = 0.5
 
         # Step 4: API call
         response = requests.post(
@@ -125,8 +133,8 @@ Give clear, structured answers:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_content}
                 ],
-                "temperature": 0.3,
-                "max_tokens": 200
+                "temperature": temperature,
+                "max_tokens": 1024
             },
             timeout=30
         )
@@ -137,10 +145,23 @@ Give clear, structured answers:
         if "choices" in data:
 
             answer = data["choices"][0]["message"]["content"]
-            
+
+            # Only return sources that the model actually referenced in its response
+            # This prevents false citations when the model answers from its own knowledge
+            answer_lower = answer.lower()
+            sources_used = []
+            for s in unique_sources:
+                fname = s["filename"]
+                # Check exact filename (e.g., "Machine_Learning.pdf")
+                if fname.lower() in answer_lower:
+                    sources_used.append(s)
+                # Also check filename without .pdf extension (e.g., "Machine_Learning")
+                elif fname.lower().replace(".pdf", "") in answer_lower:
+                    sources_used.append(s)
+
             return {
                 "answer": answer,
-                "sources": unique_sources
+                "sources": sources_used
             }
 
         elif "error" in data:

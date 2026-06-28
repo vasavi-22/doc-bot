@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify
 from services.rag_pipeline import query_rag
+from services.intent_classifier import classify_intent, INTENT_GENERAL_CONVERSATION
 from utils.logger import logger
 
 chat_bp = Blueprint("chat", __name__)
@@ -16,17 +17,24 @@ def chat():
 
         question = data["message"]
 
+        # Step 1: Classify intent using Groq LLM classifer
+        # Returns (intent, conversational_response_if_general)
+        intent, conversational_response = classify_intent(question)
+        logger.info(f"Intent classified: {intent} for message: {question[:60]}")
+
+        # Step 2: Handle general conversation — no RAG, no Pinecone retrieval
+        if intent == INTENT_GENERAL_CONVERSATION:
+            return jsonify({
+                "answer": conversational_response,
+                "sources": []
+            })
+
+        # Step 3: Document query — execute the RAG pipeline
         document_id = data.get("document_id")
         category = data.get("category")
         owner = data.get("owner")
 
-        # Get AI response
         answer = query_rag(question=question, document_id=document_id, category=category, owner=owner)
-
-        # return jsonify({
-        #     "success": True,
-        #     "response": answer
-        # })
 
         return jsonify(answer)
 
