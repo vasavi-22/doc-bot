@@ -1,6 +1,6 @@
 import { MessageCircle } from "lucide-react";
 
-export default function MessageBubble({ role, text, sources = [] }) {
+export default function MessageBubble({ role, text, sources = [], streaming = false }) {
   const isUser = role === "user";
 
   return (
@@ -12,7 +12,16 @@ export default function MessageBubble({ role, text, sources = [] }) {
       ) : (
         <div className="max-w-[70%]">
           <div className="bg-white border border-[#E5E7EB] rounded-xl px-5 py-4 text-sm text-[#374151] leading-relaxed shadow-sm">
-            {text}
+            {text || streaming ? (
+              <>
+                {text}
+                {streaming && (
+                  <span className="inline-block w-[2px] h-[1em] bg-[#2563EB] ml-0.5 align-text-bottom animate-pulse" />
+                )}
+              </>
+            ) : (
+              <span className="text-[#9CA3AF] italic">Thinking...</span>
+            )}
           </div>
           {sources.length > 0 && (
             <div className="mt-3">

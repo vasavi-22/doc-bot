@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Plus, MessageCircle, ChevronRight, Send } from "lucide-react";
-import { sendMessage } from "../services/api";
+import { sendMessageStream } from "../services/api";
 import MessageBubble from "./MessageBubble";
 import { useToast } from "./Toast";
 
@@ -16,6 +16,7 @@ export default function ChatPage() {
   });
   const [activeConvId, setActiveConvId] = useState(() => conversations[0].id);
   const bottomRef = useRef(null);
+  const abortRef = useRef(null);
 
   const activeConv = conversations.find((c) => c.id === activeConvId);
   const messages = activeConv?.messages || [];
@@ -53,11 +54,34 @@ export default function ChatPage() {
     [activeConvId]
   );
 
+  const updateMessage = useCallback(
+    (msgId, updater) => {
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === activeConvId
+            ? {
+                ...c,
+                messages: c.messages.map((m) => {
+                  if (m.id !== msgId) return m;
+                  const resolved = {};
+                  for (const [key, value] of Object.entries(updater)) {
+                    resolved[key] = typeof value === "function" ? value(m[key]) : value;
+                  }
+                  return { ...m, ...resolved };
+                }),
+              }
+            : c
+        )
+      );
+    },
+    [activeConvId]
+  );
+
   const handleSend = async () => {
     if (!input.trim() || loading) return;
 
     const userMessage = input.trim();
-    addMessageToActive({ role: "user", text: userMessage });
+    addMessageToActive({ id: `user_${Date.now()}`, role: "user", text: userMessage });
     setInput("");
     setLoading(true);
 
@@ -76,23 +100,38 @@ export default function ChatPage() {
       )
     );
 
-    try {
-      const res = await sendMessage(userMessage);
-      addMessageToActive({
-        role: "bot",
-        text: res.data.answer,
-        sources: res.data.sources || [],
-      });
-    } catch (err) {
-      const errorMsg = err.response?.data?.error || "Failed to get response";
-      addToast(errorMsg, "error");
-      addMessageToActive({
-        role: "bot",
-        text: "Something went wrong. Please try again.",
-      });
+    // Cancel any previous stream in progress
+    if (abortRef.current) {
+      abortRef.current.abort();
     }
 
-    setLoading(false);
+    // Add a placeholder bot message for streaming
+    const msgId = `bot_${Date.now()}`;
+    addMessageToActive({ id: msgId, role: "bot", text: "", sources: [], streaming: true });
+
+    abortRef.current = sendMessageStream(
+      userMessage,
+      // onToken: append tokens as they arrive
+      (token) => {
+        updateMessage(msgId, {
+          text: (prev) => (prev || "") + token,
+        });
+      },
+      // onSources: finalize with sources
+      (sources) => {
+        updateMessage(msgId, { sources, streaming: false });
+        setLoading(false);
+      },
+      // onError: show error
+      (error) => {
+        addToast(error, "error");
+        updateMessage(msgId, {
+          text: (prev) => prev || "Something went wrong. Please try again.",
+          streaming: false,
+        });
+        setLoading(false);
+      }
+    );
   };
 
   const handleKeyDown = (e) => {
@@ -157,34 +196,15 @@ export default function ChatPage() {
         ) : (
           <div className="flex-1 overflow-y-auto px-6 py-6">
             <div className="max-w-4xl mx-auto">
-              {messages.map((m, i) => (
+              {messages.map((m) => (
                 <MessageBubble
-                  key={i}
+                  key={m.id}
                   role={m.role}
                   text={m.text}
                   sources={m.sources}
+                  streaming={m.streaming}
                 />
               ))}
-              {loading && (
-                <div className="flex justify-start mb-6">
-                  <div className="bg-white border border-[#E5E7EB] rounded-xl px-5 py-3 shadow-sm">
-                    <div className="flex items-center gap-2">
-                      <div
-                        className="w-2 h-2 bg-[#2563EB] rounded-full animate-bounce"
-                        style={{ animationDelay: "0ms" }}
-                      />
-                      <div
-                        className="w-2 h-2 bg-[#2563EB] rounded-full animate-bounce"
-                        style={{ animationDelay: "150ms" }}
-                      />
-                      <div
-                        className="w-2 h-2 bg-[#2563EB] rounded-full animate-bounce"
-                        style={{ animationDelay: "300ms" }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
               <div ref={bottomRef} />
             </div>
           </div>
