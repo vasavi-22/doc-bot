@@ -54,8 +54,181 @@ def init_db():
         )
     """)
 
+    # Chats table (with summary field for conversation summarization)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS chats (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            title TEXT NOT NULL DEFAULT 'New Chat',
+            summary TEXT DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    """)
+
+    # Add summary column if upgrading from an older schema (safe to run on fresh DB too)
+    try:
+        cursor.execute("ALTER TABLE chats ADD COLUMN summary TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
+    # Messages table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS messages (
+            id TEXT PRIMARY KEY,
+            chat_id TEXT NOT NULL,
+            role TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'system')),
+            content TEXT NOT NULL,
+            sources TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE
+        )
+    """)
+
     conn.commit()
     conn.close()
+
+
+# ── Chat helpers ──
+
+
+def create_chat(chat_id, user_id, title="New Chat"):
+    conn = get_connection()
+    cursor = conn.cursor()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cursor.execute(
+        "INSERT INTO chats (id, user_id, title, summary, created_at, updated_at) VALUES (?, ?, ?, '', ?, ?)",
+        (chat_id, user_id, title, now, now)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_chats_by_user(user_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id, user_id, title, summary, created_at, updated_at FROM chats WHERE user_id = ? ORDER BY updated_at DESC",
+        (user_id,)
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return [{
+        "id": r[0],
+        "user_id": r[1],
+        "title": r[2],
+        "summary": r[3] or "",
+        "created_at": r[4],
+        "updated_at": r[5]
+    } for r in rows]
+
+
+def get_chat_by_id(chat_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id, user_id, title, summary, created_at, updated_at FROM chats WHERE id = ?",
+        (chat_id,)
+    )
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+        return {
+            "id": row[0],
+            "user_id": row[1],
+            "title": row[2],
+            "summary": row[3] if len(row) > 3 else "",
+            "created_at": row[4],
+            "updated_at": row[5]
+        }
+    return None
+
+
+def update_chat_title(chat_id, title):
+    conn = get_connection()
+    cursor = conn.cursor()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cursor.execute(
+        "UPDATE chats SET title = ?, updated_at = ? WHERE id = ?",
+        (title, now, chat_id)
+    )
+    conn.commit()
+    conn.close()
+
+
+def update_chat_summary(chat_id, summary):
+    """Update the summary field of a chat."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE chats SET summary = ? WHERE id = ?", (summary, chat_id))
+    conn.commit()
+    conn.close()
+
+
+def get_message_count(chat_id):
+    """Get the total number of messages in a chat."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM messages WHERE chat_id = ?", (chat_id,))
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count
+
+
+def delete_chat(chat_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM messages WHERE chat_id = ?", (chat_id,))
+    cursor.execute("DELETE FROM chats WHERE id = ?", (chat_id,))
+    conn.commit()
+    conn.close()
+
+
+def touch_chat(chat_id):
+    """Update the updated_at timestamp of a chat."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cursor.execute("UPDATE chats SET updated_at = ? WHERE id = ?", (now, chat_id))
+    conn.commit()
+    conn.close()
+
+
+# ── Message helpers ──
+
+
+def save_message(msg_id, chat_id, role, content, sources=None):
+    conn = get_connection()
+    cursor = conn.cursor()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cursor.execute(
+        "INSERT INTO messages (id, chat_id, role, content, sources, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (msg_id, chat_id, role, content, sources, now)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_messages_by_chat(chat_id, limit=50):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """SELECT id, chat_id, role, content, sources, created_at
+           FROM messages WHERE chat_id = ?
+           ORDER BY created_at ASC LIMIT ?""",
+        (chat_id, limit)
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return [{
+        "id": r[0],
+        "chat_id": r[1],
+        "role": r[2],
+        "content": r[3],
+        "sources": r[4],
+        "created_at": r[5]
+    } for r in rows]
 
 
 # ── User helpers ──

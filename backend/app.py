@@ -6,6 +6,7 @@ load_dotenv()
 from routes.upload import upload_bp
 from routes.chat import chat_bp
 from routes.auth import auth_bp
+from routes.conversations import conversations_bp
 from config import Config
 Config.validate()
 
@@ -32,6 +33,7 @@ app.config["MAX_CONTENT_LENGTH"] = Config.MAX_FILE_SIZE_MB * 1024 * 1024
 app.register_blueprint(upload_bp)
 app.register_blueprint(chat_bp)
 app.register_blueprint(auth_bp)
+app.register_blueprint(conversations_bp)
 
 @app.route("/health", methods=["GET"])
 def health():
