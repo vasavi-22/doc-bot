@@ -1,17 +1,41 @@
 import axios from "axios";
 
-const API = "http://localhost:5000";
-const API_URL = import.meta.env.VITE_API_URL;
+const API = import.meta.env.VITE_API_URL || "http://localhost:5000";
+
+// Axios interceptor to attach JWT token to all requests
+axios.interceptors.request.use((config) => {
+  const token = localStorage.getItem("token");
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// Auth API calls
+export const loginApi = (email, password) =>
+  axios.post(`${API}/api/auth/login`, { email, password });
+
+export const registerApi = (name, email, password) =>
+  axios.post(`${API}/api/auth/register`, { name, email, password });
+
+export const getMeApi = () =>
+  axios.get(`${API}/api/auth/me`);
+
+// Chat API calls
 
 export const sendMessage = (message) =>
-  axios.post(`${API_URL}/chat`, { message });
+  axios.post(`${API}/chat`, { message });
 
 export const sendMessageStream = (message, onToken, onSources, onError) => {
   const controller = new AbortController();
+  const token = localStorage.getItem("token");
 
-  fetch(`${API_URL}/chat/stream`, {
+  fetch(`${API}/chat/stream`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
     body: JSON.stringify({ message }),
     signal: controller.signal,
   })
@@ -81,7 +105,7 @@ export const uploadFile = (file) => {
   const formData = new FormData();
   formData.append("file", file);
 
-  return axios.post(`${API_URL}/upload`, formData, {
+  return axios.post(`${API}/upload`, formData, {
     headers: {
       "Content-Type": "multipart/form-data",
     },
@@ -89,7 +113,7 @@ export const uploadFile = (file) => {
 };
 
 export const getDocuments = () =>
-  axios.get(`${API_URL}/documents`);
+  axios.get(`${API}/documents`);
 
-export const deleteDocument = (filename) =>
-  axios.delete(`${API_URL}/documents/${filename}`);
+export const deleteDocument = (documentId) =>
+  axios.delete(`${API}/documents/${documentId}`);

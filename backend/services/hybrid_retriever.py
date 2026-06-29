@@ -30,7 +30,8 @@ def hybrid_search(
     top_k=10,
     document_id=None,
     category=None,
-    owner=None
+    owner=None,
+    user_id=None
 ):
 
     # Dense Search
@@ -50,6 +51,9 @@ def hybrid_search(
 
     if owner:
         pinecone_filter["owner"] = owner
+
+    if user_id:
+        pinecone_filter["user_id"] = user_id
 
     dense_results = query_vectors(
         query_embedding,
@@ -80,7 +84,8 @@ def hybrid_search(
         top_k=top_k,
         document_id=document_id,
         category=category,
-        owner=owner
+        owner=owner,
+        user_id=user_id
     )
 
     # Normalize

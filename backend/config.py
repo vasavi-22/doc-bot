@@ -14,6 +14,9 @@ class Config:
     CHUNK_SIZE = 500
     CHUNK_OVERLAP = 100
 
+    JWT_SECRET = os.getenv("JWT_SECRET", "doc-bot-secret-key-change-in-production")
+    JWT_EXPIRATION_HOURS = 24
+
     @classmethod
     def validate(cls):
         required = {

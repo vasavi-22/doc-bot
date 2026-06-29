@@ -10,13 +10,15 @@ def sparse_search(
     top_k=10,
     document_id=None,
     category=None,
-    owner=None
+    owner=None,
+    user_id=None
 ):
 
     rows = get_chunks(
         document_id=document_id,
         category=category,
-        owner=owner
+        owner=owner,
+        user_id=user_id
     )
 
     if not rows:

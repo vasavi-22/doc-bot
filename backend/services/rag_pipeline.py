@@ -10,7 +10,7 @@ GROQ_API_KEY = Config.GROQ_API_KEY
 TOP_K_RESULTS = Config.TOP_K_RESULTS
 
 
-def _retrieve_context(question, document_id=None, category=None, owner=None):
+def _retrieve_context(question, document_id=None, category=None, owner=None, user_id=None):
     """Shared retrieval logic. Returns (context, unique_sources)."""
     logger.info("Querying Pinecone")
 
@@ -21,13 +21,16 @@ def _retrieve_context(question, document_id=None, category=None, owner=None):
         pinecone_filter["category"] = category
     if owner:
         pinecone_filter["owner"] = owner
+    if user_id:
+        pinecone_filter["user_id"] = user_id
 
     matches = hybrid_search(
         question,
         top_k=TOP_K_RESULTS,
         document_id=document_id,
         category=category,
-        owner=owner
+        owner=owner,
+        user_id=user_id
     )
 
     context_chunks = []
@@ -122,13 +125,13 @@ def _filter_sources(answer, unique_sources):
     return sources_used
 
 
-def query_rag(question, document_id=None, category=None, owner=None):
+def query_rag(question, document_id=None, category=None, owner=None, user_id=None):
     """Non-streaming RAG query — returns full answer dict."""
     try:
         if not GROQ_API_KEY:
             return {"error": "GROQ_API_KEY not set"}
 
-        context, unique_sources = _retrieve_context(question, document_id, category, owner)
+        context, unique_sources = _retrieve_context(question, document_id, category, owner, user_id)
         system_prompt, user_content, temperature = _build_prompt(question, context)
 
         response = requests.post(
@@ -167,7 +170,7 @@ def query_rag(question, document_id=None, category=None, owner=None):
         return {"error": f"Error: {str(e)}"}
 
 
-def query_rag_stream(question, document_id=None, category=None, owner=None):
+def query_rag_stream(question, document_id=None, category=None, owner=None, user_id=None):
     """
     Streaming RAG query — generator that yields SSE-formatted strings.
 
@@ -182,7 +185,7 @@ def query_rag_stream(question, document_id=None, category=None, owner=None):
         return
 
     try:
-        context, unique_sources = _retrieve_context(question, document_id, category, owner)
+        context, unique_sources = _retrieve_context(question, document_id, category, owner, user_id)
         system_prompt, user_content, temperature = _build_prompt(question, context)
 
         # Make streaming request to Groq

@@ -1,13 +1,15 @@
-from flask import Blueprint, request, jsonify, Response, stream_with_context
+from flask import Blueprint, request, jsonify, Response, stream_with_context, g
 from services.rag_pipeline import query_rag, query_rag_stream
 from services.intent_classifier import classify_intent, INTENT_GENERAL_CONVERSATION
 from utils.logger import logger
+from middleware.auth_middleware import jwt_required
 import json
 
 chat_bp = Blueprint("chat", __name__)
 
 
 @chat_bp.route("/chat", methods=["POST"])
+@jwt_required
 def chat():
     try:
         data = request.get_json()
@@ -36,7 +38,13 @@ def chat():
         category = data.get("category")
         owner = data.get("owner")
 
-        answer = query_rag(question=question, document_id=document_id, category=category, owner=owner)
+        answer = query_rag(
+            question=question,
+            document_id=document_id,
+            category=category,
+            owner=owner,
+            user_id=g.user_id
+        )
 
         return jsonify(answer)
 
@@ -48,6 +56,7 @@ def chat():
 
 
 @chat_bp.route("/chat/stream", methods=["POST"])
+@jwt_required
 def chat_stream():
     """SSE streaming endpoint for chat responses."""
     try:
@@ -82,7 +91,8 @@ def chat_stream():
                     question=question,
                     document_id=document_id,
                     category=category,
-                    owner=owner
+                    owner=owner,
+                    user_id=g.user_id
                 )
 
         return Response(

@@ -79,14 +79,17 @@ export default function Dashboard() {
   const recentDocs = useMemo(
     () =>
       documents.length > 0
-        ? documents.slice(0, 4).map((name) => {
-            const type = getFileType(name);
-            const hash = name.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
+        ? documents.slice(0, 4).map((doc) => {
+            const displayName = doc.original_filename || doc.filename || "Untitled";
+            const type = getFileType(displayName);
+            const hash = displayName.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
             return {
-              name,
+              name: displayName,
               type,
-              pages: (hash % 46) + 5,
-              uploadedAt: "2 hours ago",
+              pages: doc.chunks || (hash % 46) + 5,
+              uploadedAt: doc.upload_time
+                ? new Date(doc.upload_time).toLocaleDateString()
+                : "2 hours ago",
             };
           })
         : [

@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify, send_from_directory
+from flask import Blueprint, request, jsonify, send_from_directory, g
 import os
 
 from services.document_loader import load_pdf
@@ -8,22 +8,42 @@ from config import Config
 from utils.logger import logger
 from werkzeug.utils import secure_filename
 import uuid
-from services.document_metadata import save_document_metadata
 from services.chunk_metadata import build_chunk_metadata
-from database import save_chunks
+from database import save_chunks, save_document_metadata, get_documents_by_user, delete_document_meta
+from middleware.auth_middleware import jwt_required
 
 upload_bp = Blueprint("upload", __name__)
 
 UPLOAD_FOLDER = Config.UPLOAD_FOLDER
 MAX_FILE_SIZE_MB = Config.MAX_FILE_SIZE_MB
 
-# Ensure folder exists
+# Ensure base folder exists
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+ALLOWED_EXTENSIONS = {"pdf"}
+
+
+def allowed_file(filename):
+    return (
+        "." in filename
+        and filename.rsplit(".", 1)[1].lower()
+        in ALLOWED_EXTENSIONS
+    )
+
+
+def get_user_upload_folder(user_id):
+    """Get or create user-specific upload folder."""
+    folder = os.path.join(UPLOAD_FOLDER, f"user_{user_id}")
+    os.makedirs(folder, exist_ok=True)
+    return folder
 
 
 @upload_bp.route("/upload", methods=["POST"])
+@jwt_required
 def upload_file():
     try:
+        user_id = g.user_id
+
         if "file" not in request.files:
             return jsonify({"error": "No file provided"}), 400
 
@@ -33,15 +53,17 @@ def upload_file():
             return jsonify({"error": "Empty filename"}), 400
 
         if not allowed_file(file.filename):
-            return jsonify({"error":"Only PDF files allowed"}),400
+            return jsonify({"error": "Only PDF files allowed"}), 400
 
         safe_filename = secure_filename(file.filename)
-        unique_filename = (f"{uuid.uuid4()}_{safe_filename}")
-        path = os.path.join(UPLOAD_FOLDER, unique_filename)
+        unique_filename = f"{uuid.uuid4()}_{safe_filename}"
+
+        # Store in user-specific folder
+        user_folder = get_user_upload_folder(user_id)
+        path = os.path.join(user_folder, unique_filename)
         file.save(path)
 
-        # process document
-        
+        # Process document
         chunks = load_pdf(path)
         texts = [c["text"] for c in chunks]
 
@@ -51,8 +73,9 @@ def upload_file():
             chunks=chunks,
             document_id=document_id,
             filename=safe_filename,
-            owner="default",
-            category="general"
+            owner=user_id,
+            category="general",
+            user_id=user_id
         )
         embeddings = create_embeddings(texts)
         store_vectors(
@@ -62,9 +85,11 @@ def upload_file():
         )
         save_document_metadata(
             document_id=document_id,
+            user_id=user_id,
             filename=unique_filename,
+            original_filename=safe_filename,
             chunks=len(texts),
-            owner="default",
+            owner=user_id,
             category="general",
             tags=""
         )
@@ -72,16 +97,15 @@ def upload_file():
         chunk_records = []
 
         for i, chunk in enumerate(chunks):
-
             metadata = metadata_list[i]
-
             chunk_records.append((
                 f"{metadata['document_id']}_{i}",
                 metadata["document_id"],
+                user_id,
                 chunk["text"],
                 metadata.get("page_number"),
                 metadata.get("filename"),
-                metadata.get("owner"),
+                user_id,
                 metadata.get("category")
             ))
 
@@ -95,43 +119,99 @@ def upload_file():
 
     except Exception as e:
         logger.error(f"Upload failed: {str(e)}")
-        return jsonify({
-            "error": str(e)
-        }), 500
-    
-ALLOWED_EXTENSIONS = {"pdf"}
+        return jsonify({"error": str(e)}), 500
 
-def allowed_file(filename):
-    return (
-        "." in filename
-        and filename.rsplit(".",1)[1].lower()
-        in ALLOWED_EXTENSIONS
-    )
 
-# Get all documents
 @upload_bp.route("/documents", methods=["GET"])
+@jwt_required
 def get_documents():
-    files = os.listdir(UPLOAD_FOLDER)
-    return jsonify({"documents": files})
+    """Get documents for the authenticated user."""
+    try:
+        user_id = g.user_id
+        rows = get_documents_by_user(user_id)
+
+        docs = []
+        for row in rows:
+            docs.append({
+                "document_id": row[0],
+                "filename": row[2],
+                "original_filename": row[3],
+                "upload_time": row[4],
+                "chunks": row[5],
+                "category": row[7] if len(row) > 7 else None
+            })
+
+        return jsonify({"documents": docs})
+
+    except Exception as e:
+        logger.error(f"Get documents failed: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
 
-# View/download document
-@upload_bp.route("/documents/<filename>", methods=["GET"])
-def view_document(filename):
-    path = os.path.join(UPLOAD_FOLDER, filename)
+@upload_bp.route("/documents/<document_id>", methods=["GET"])
+@jwt_required
+def view_document(document_id):
+    """View/download a document."""
+    try:
+        user_id = g.user_id
+        rows = get_documents_by_user(user_id)
 
-    if not os.path.exists(path):
-        return jsonify({"error": "File not found"}), 404
+        # Find the document by document_id
+        target = None
+        for row in rows:
+            if row[0] == document_id:
+                target = row
+                break
 
-    return send_from_directory(UPLOAD_FOLDER, filename)
+        if not target:
+            return jsonify({"error": "Document not found"}), 404
 
-# Delete document
-@upload_bp.route("/documents/<filename>", methods=["DELETE"])
-def delete_document(filename):
-    path = os.path.join(UPLOAD_FOLDER, filename)
+        filename = target[2]  # stored filename
+        user_folder = get_user_upload_folder(user_id)
+        path = os.path.join(user_folder, filename)
 
-    if os.path.exists(path):
-        os.remove(path)
+        if not os.path.exists(path):
+            return jsonify({"error": "File not found on disk"}), 404
+
+        return send_from_directory(user_folder, filename)
+
+    except Exception as e:
+        logger.error(f"View document failed: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+@upload_bp.route("/documents/<document_id>", methods=["DELETE"])
+@jwt_required
+def delete_document(document_id):
+    """Delete a document."""
+    try:
+        user_id = g.user_id
+        rows = get_documents_by_user(user_id)
+
+        target = None
+        for row in rows:
+            if row[0] == document_id:
+                target = row
+                break
+
+        if not target:
+            return jsonify({"error": "Document not found"}), 404
+
+        filename = target[2]
+        user_folder = get_user_upload_folder(user_id)
+        path = os.path.join(user_folder, filename)
+
+        if os.path.exists(path):
+            os.remove(path)
+
+        # Delete from database
+        delete_document_meta(document_id)
+
+        # Note: Vectors in Pinecone would need to be deleted separately
+        # For now, they'll be orphaned but filtered by user_id
+
         return jsonify({"message": "Deleted successfully"})
-    else:
-        return jsonify({"error": "File not found"}), 404
+
+    except Exception as e:
+        logger.error(f"Delete document failed: {str(e)}")
+        return jsonify({"error": str(e)}), 500

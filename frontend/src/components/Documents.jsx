@@ -33,15 +33,7 @@ export default function Documents() {
       const res = await getDocuments();
       setDocuments(res.data.documents || []);
     } catch {
-      // fallback mock data
-      setDocuments([
-        "Research Paper.pdf",
-        "Company Policy.pdf",
-        "User Guide.docx",
-        "Product Overview.pptx",
-        "Meeting Notes.txt",
-        "Report.xlsx",
-      ]);
+      setDocuments([]);
     }
   };
 
@@ -64,14 +56,18 @@ export default function Documents() {
     e.target.value = "";
   };
 
-  const handleView = (filename) => {
-    window.open(`http://localhost:5000/documents/${encodeURIComponent(filename)}`, "_blank");
+  const handleView = (documentId) => {
+    const token = localStorage.getItem("token");
+    const url = token
+      ? `http://localhost:5000/documents/${documentId}?token=${encodeURIComponent(token)}`
+      : `http://localhost:5000/documents/${documentId}`;
+    window.open(url, "_blank");
   };
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     try {
-      await deleteDocument(deleteTarget);
+      await deleteDocument(deleteTarget.document_id);
       fetchDocs();
       addToast("Document deleted successfully", "success");
     } catch (err) {
@@ -80,21 +76,25 @@ export default function Documents() {
     setDeleteTarget(null);
   };
 
-  const filteredDocs = documents.filter((name) =>
-    name.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredDocs = documents.filter((doc) =>
+    (doc.original_filename || doc.filename || "")
+      .toLowerCase()
+      .includes(searchQuery.toLowerCase())
   );
 
   const docRows = useMemo(
     () =>
-      filteredDocs.map((name) => {
-        const type = getFileType(name);
-        // Use a hash of the filename for deterministic page counts
-        const hash = name.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
+      filteredDocs.map((doc) => {
+        const displayName = doc.original_filename || doc.filename || "Untitled";
+        const type = getFileType(displayName);
         return {
-          name,
+          document_id: doc.document_id,
+          name: displayName,
           type,
-          pages: (hash % 46) + 5,
-          uploadedAt: "2 hours ago",
+          pages: doc.chunks || 0,
+          uploadedAt: doc.upload_time
+            ? new Date(doc.upload_time).toLocaleDateString()
+            : "Unknown",
         };
       }),
     [filteredDocs]
@@ -176,14 +176,14 @@ export default function Documents() {
                   <td className="px-6 py-3 text-right">
                     <div className="flex items-center justify-end gap-2">
                       <button
-                        onClick={() => handleView(doc.name)}
+                        onClick={() => handleView(doc.document_id)}
                         className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
                         title="View document"
                       >
                         <Eye className="w-4 h-4 text-[#6B7280]" />
                       </button>
                       <button
-                        onClick={() => setDeleteTarget(doc.name)}
+                        onClick={() => setDeleteTarget(doc)}
                         className="p-1.5 rounded-lg hover:bg-red-50 transition-colors"
                         title="Delete document"
                       >
@@ -202,7 +202,7 @@ export default function Documents() {
       <ConfirmDialog
         open={!!deleteTarget}
         title="Delete Document"
-        message={`Are you sure you want to delete "${deleteTarget || ""}"? This action cannot be undone.`}
+        message={`Are you sure you want to delete "${(deleteTarget?.name || "")}"? This action cannot be undone.`}
         confirmLabel="Delete"
         cancelLabel="Cancel"
         onConfirm={confirmDelete}

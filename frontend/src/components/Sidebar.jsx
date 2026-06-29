@@ -1,4 +1,5 @@
-import { Home, FileText, MessageCircle, ChevronDown } from "lucide-react";
+import { Home, FileText, MessageCircle, LogOut } from "lucide-react";
+import { useAuth } from "../store/AuthContext";
 
 const navItems = [
   { id: "dashboard", label: "Dashboard", icon: Home },
@@ -7,6 +8,11 @@ const navItems = [
 ];
 
 export default function Sidebar({ activeTab, onTabChange }) {
+  const { user, logout } = useAuth();
+  const initials = user?.name
+    ? user.name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)
+    : "U";
+
   return (
     <aside className="w-[220px] bg-white border-r border-gray-200 flex flex-col h-screen shrink-0">
       {/* Logo Section */}
@@ -46,11 +52,20 @@ export default function Sidebar({ activeTab, onTabChange }) {
       {/* User Section */}
       <div className="px-4 pb-6 pt-4 border-t border-gray-100 mx-4">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-[#60A5FA] rounded-full flex items-center justify-center text-white text-sm font-medium shrink-0">
-            U
+          <div className="w-8 h-8 bg-[#2563EB] rounded-full flex items-center justify-center text-white text-sm font-medium shrink-0">
+            {initials}
           </div>
-          <span className="text-sm font-medium text-[#111827] flex-1">User</span>
-          <ChevronDown className="w-4 h-4 text-[#9CA3AF]" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-[#111827] truncate">{user?.name || "User"}</p>
+            <p className="text-xs text-[#9CA3AF] truncate">{user?.email || ""}</p>
+          </div>
+          <button
+            onClick={logout}
+            className="p-1.5 rounded-lg hover:bg-red-50 transition-colors"
+            title="Sign out"
+          >
+            <LogOut className="w-4 h-4 text-[#9CA3AF] hover:text-red-500" />
+          </button>
         </div>
       </div>
     </aside>
