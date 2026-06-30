@@ -67,6 +67,12 @@ def init_db():
         )
     """)
 
+    # Add total_pages column to documents if upgrading
+    try:
+        cursor.execute("ALTER TABLE documents ADD COLUMN total_pages INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
     # Add summary column if upgrading from an older schema (safe to run on fresh DB too)
     try:
         cursor.execute("ALTER TABLE chats ADD COLUMN summary TEXT DEFAULT ''")
@@ -283,14 +289,14 @@ def create_user(user_id, name, email, password_hash, created_at):
 
 
 def save_document_metadata(document_id, user_id, filename, original_filename, chunks,
-                            owner="default", category="general", tags=""):
+                            owner="default", category="general", tags="", total_pages=None):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO documents
         (document_id, user_id, filename, original_filename, upload_time,
-         chunks, owner, category, tags)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         chunks, owner, category, tags, total_pages)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         document_id,
         user_id,
@@ -300,7 +306,8 @@ def save_document_metadata(document_id, user_id, filename, original_filename, ch
         chunks,
         owner,
         category,
-        tags
+        tags,
+        total_pages or chunks
     ))
     conn.commit()
     conn.close()
@@ -309,13 +316,23 @@ def save_document_metadata(document_id, user_id, filename, original_filename, ch
 def get_documents_by_user(user_id):
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("""
-        SELECT document_id, user_id, filename, original_filename, upload_time,
-               chunks, owner, category, tags
-        FROM documents
-        WHERE user_id = ?
-        ORDER BY upload_time DESC
-    """, (user_id,))
+    try:
+        cursor.execute("""
+            SELECT document_id, user_id, filename, original_filename, upload_time,
+                   chunks, owner, category, tags, total_pages
+            FROM documents
+            WHERE user_id = ?
+            ORDER BY upload_time DESC
+        """, (user_id,))
+    except sqlite3.OperationalError:
+        # Fallback if total_pages column doesn't exist yet
+        cursor.execute("""
+            SELECT document_id, user_id, filename, original_filename, upload_time,
+                   chunks, owner, category, tags, chunks as total_pages
+            FROM documents
+            WHERE user_id = ?
+            ORDER BY upload_time DESC
+        """, (user_id,))
     rows = cursor.fetchall()
     conn.close()
     return rows
@@ -384,6 +401,79 @@ def get_chunks(document_id=None, category=None, owner=None, user_id=None):
     rows = cursor.fetchall()
     conn.close()
     return rows
+
+
+# ── Stats helpers ──
+
+
+def get_document_stats(user_id):
+    """Get total documents and total pages for a user."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        # Use MAX(total_pages, chunks) so docs with total_pages=0 (from migration) still show chunk count
+        cursor.execute(
+            """SELECT COUNT(*),
+                      COALESCE(SUM(CASE WHEN total_pages > 0 THEN total_pages ELSE chunks END), 0)
+               FROM documents WHERE user_id = ?""",
+            (user_id,)
+        )
+    except sqlite3.OperationalError:
+        # Fallback if total_pages doesn't exist
+        cursor.execute(
+            "SELECT COUNT(*), COALESCE(SUM(chunks), 0) FROM documents WHERE user_id = ?",
+            (user_id,)
+        )
+    row = cursor.fetchone()
+    conn.close()
+    return {"total_documents": row[0], "total_pages": row[1]}
+
+
+def get_chat_stats(user_id):
+    """Get total chats and total questions (user messages) for a user."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT COUNT(*) FROM chats WHERE user_id = ?",
+        (user_id,)
+    )
+    total_chats = cursor.fetchone()[0]
+    # Use a subquery for clarity — counts only user-role messages belonging to this user's chats
+    cursor.execute(
+        """SELECT COUNT(*) FROM messages
+           WHERE role = 'user'
+           AND chat_id IN (SELECT id FROM chats WHERE user_id = ?)""",
+        (user_id,)
+    )
+    total_questions = cursor.fetchone()[0]
+    conn.close()
+    return {"total_chats": total_chats, "total_questions": total_questions}
+
+
+def get_recent_chats(user_id, limit=4):
+    """Get recent chats with their first user message for the dashboard."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """SELECT c.id, c.title, c.created_at, c.updated_at,
+                  (SELECT m2.content FROM messages m2
+                   WHERE m2.chat_id = c.id AND m2.role = 'user'
+                   ORDER BY m2.created_at ASC LIMIT 1) as first_question
+           FROM chats c
+           WHERE c.user_id = ?
+           ORDER BY c.updated_at DESC
+           LIMIT ?""",
+        (user_id, limit)
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return [{
+        "id": r[0],
+        "title": r[1],
+        "created_at": r[2],
+        "updated_at": r[3],
+        "first_question": r[4] or r[1]
+    } for r in rows]
 
 
 if __name__ == "__main__":

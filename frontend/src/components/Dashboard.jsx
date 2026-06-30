@@ -1,11 +1,11 @@
 import { useState, useEffect, useMemo } from "react";
-import { FileText, BookOpen, MessageCircle, HelpCircle } from "lucide-react";
-import { getDocuments } from "../services/api";
+import { FileText, BookOpen, MessageCircle, HelpCircle, Clock } from "lucide-react";
+import { getDocuments, getDashboardStats } from "../services/api";
 
 const statCards = [
   {
     title: "Total Documents",
-    value: 12,
+    key: "total_documents",
     description: "Across all your uploads",
     icon: FileText,
     bgColor: "#F5F9FF",
@@ -13,7 +13,7 @@ const statCards = [
   },
   {
     title: "Total Pages",
-    value: 248,
+    key: "total_pages",
     description: "In all documents",
     icon: BookOpen,
     bgColor: "#F0FDF4",
@@ -21,7 +21,7 @@ const statCards = [
   },
   {
     title: "Total Chats",
-    value: 34,
+    key: "total_chats",
     description: "Conversations started",
     icon: MessageCircle,
     bgColor: "#FFF7ED",
@@ -29,7 +29,7 @@ const statCards = [
   },
   {
     title: "Total Questions",
-    value: 156,
+    key: "total_questions",
     description: "Questions asked",
     icon: HelpCircle,
     bgColor: "#FAF5FF",
@@ -53,28 +53,72 @@ function getFileIconColor(type) {
   return fileIconColors[type] || "text-gray-400";
 }
 
-const recentChatsData = [
-  { question: "What are the key findings of this research?", date: "Today", time: "2:30 PM" },
-  { question: "Summarize the document", date: "Today", time: "1:15 PM" },
-  { question: "What is the company leave policy?", date: "Yesterday", time: "4:45 PM" },
-  { question: "Explain the methodology used?", date: "Yesterday", time: "11:20 AM" },
-];
+function formatRelativeTime(dateString) {
+  if (!dateString) return "";
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffMs = now - date;
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  const hours = date.getHours();
+  const minutes = date.getMinutes();
+  const ampm = hours >= 12 ? "PM" : "AM";
+  const hour12 = hours % 12 || 12;
+  const timeStr = `${hour12}:${minutes.toString().padStart(2, "0")} ${ampm}`;
 
-export default function Dashboard() {
+  if (diffDays === 0) {
+    return `Today, ${timeStr}`;
+  } else if (diffDays === 1) {
+    return `Yesterday, ${timeStr}`;
+  } else if (diffDays < 7) {
+    return `${diffDays} days ago, ${timeStr}`;
+  } else {
+    return `${date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}, ${timeStr}`;
+  }
+}
+
+export default function Dashboard({ refreshKey = 0, onTabChange }) {
   const [documents, setDocuments] = useState([]);
+  const [stats, setStats] = useState(null);
+  const [recentChats, setRecentChats] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    getDocuments()
-      .then((res) => setDocuments(res.data.documents || []))
-      .catch(() => {});
-  }, []);
+    setLoading(true);
+    Promise.all([
+      getDocuments(),
+      getDashboardStats(),
+    ])
+      .then(([docRes, statsRes]) => {
+        setDocuments(docRes.data.documents || []);
+        const s = statsRes.data;
+        setStats({
+          total_documents: s.total_documents || 0,
+          total_pages: s.total_pages || 0,
+          total_chats: s.total_chats || 0,
+          total_questions: s.total_questions || 0,
+        });
+        setRecentChats(s.recent_chats || []);
+      })
+      .catch(() => {
+        setStats({
+          total_documents: 0,
+          total_pages: 0,
+          total_chats: 0,
+          total_questions: 0,
+        });
+      })
+      .finally(() => setLoading(false));
+  }, [refreshKey]);
 
-  const stats = statCards.map((stat) => {
-    if (stat.title === "Total Documents") {
-      return { ...stat, value: documents.length || 12 };
+  const statValues = useMemo(() => {
+    if (!stats) {
+      return statCards.map((s) => ({ ...s, value: 0 }));
     }
-    return stat;
-  });
+    return statCards.map((s) => ({
+      ...s,
+      value: stats[s.key] ?? 0,
+    }));
+  }, [stats]);
 
   const recentDocs = useMemo(
     () =>
@@ -82,24 +126,32 @@ export default function Dashboard() {
         ? documents.slice(0, 4).map((doc) => {
             const displayName = doc.original_filename || doc.filename || "Untitled";
             const type = getFileType(displayName);
-            const hash = displayName.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
             return {
               name: displayName,
               type,
-              pages: doc.chunks || (hash % 46) + 5,
+              pages: doc.total_pages || doc.chunks || 0,
               uploadedAt: doc.upload_time
-                ? new Date(doc.upload_time).toLocaleDateString()
-                : "2 hours ago",
+                ? formatRelativeTime(doc.upload_time)
+                : "Unknown",
             };
           })
-        : [
-            { name: "Research Paper.pdf", type: "PDF", pages: 24, uploadedAt: "2 hours ago" },
-            { name: "Company Policy.pdf", type: "PDF", pages: 15, uploadedAt: "5 hours ago" },
-            { name: "User Guide.docx", type: "DOCX", pages: 32, uploadedAt: "Yesterday" },
-            { name: "Product Overview.pptx", type: "PPTX", pages: 12, uploadedAt: "Yesterday" },
-          ],
+        : [],
     [documents]
   );
+
+  if (loading) {
+    return (
+      <div className="p-6 max-w-7xl mx-auto">
+        <div className="mb-6">
+          <h1 className="text-[32px] font-bold text-[#111827]">Dashboard</h1>
+          <p className="text-[#6B7280] mt-1">Loading your overview...</p>
+        </div>
+        <div className="flex items-center justify-center py-20">
+          <div className="w-6 h-6 border-2 border-[#2563EB] border-t-transparent rounded-full animate-spin" />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -109,7 +161,7 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-4 gap-5 mb-6">
-        {stats.map((stat) => {
+        {statValues.map((stat) => {
           const Icon = stat.icon;
           return (
             <div
@@ -132,56 +184,77 @@ export default function Dashboard() {
         <div className="rounded-xl border border-[#E5E7EB] p-6 bg-white shadow-sm">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-base font-semibold text-[#111827]">Recent Documents</h2>
-            <button className="px-3 py-1.5 text-sm border border-[#E5E7EB] rounded-lg text-[#6B7280] hover:bg-gray-50 transition-colors">
-              View All
-            </button>
+            {documents.length > 0 && onTabChange && (
+              <button
+                onClick={() => onTabChange("documents")}
+                className="text-xs text-[#2563EB] hover:text-blue-700 font-medium transition-colors"
+              >
+                View All
+              </button>
+            )}
           </div>
-          <table className="w-full">
-            <thead>
-              <tr className="text-xs text-[#9CA3AF] text-left">
-                <th className="pb-3 font-medium">Document Name</th>
-                <th className="pb-3 font-medium">Pages</th>
-                <th className="pb-3 font-medium">Uploaded At</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recentDocs.map((doc, i) => (
-                <tr key={i} className="border-t border-[#E5E7EB]">
-                  <td className="py-3 text-sm text-[#374151] flex items-center gap-2">
-                    <FileText className={`w-4 h-4 shrink-0 ${getFileIconColor(doc.type)}`} />
-                    <span className="truncate">{doc.name}</span>
-                  </td>
-                  <td className="py-3 text-sm text-[#6B7280]">{doc.pages}</td>
-                  <td className="py-3 text-sm text-[#6B7280]">{doc.uploadedAt}</td>
+          {recentDocs.length > 0 ? (
+            <table className="w-full">
+              <thead>
+                <tr className="text-xs text-[#9CA3AF] text-left">
+                  <th className="pb-3 font-medium">Document Name</th>
+                  <th className="pb-3 font-medium">Pages</th>
+                  <th className="pb-3 font-medium">Uploaded At</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {recentDocs.map((doc, i) => (
+                  <tr key={i} className="border-t border-[#E5E7EB]">
+                    <td className="py-3 text-sm text-[#374151] flex items-center gap-2">
+                      <FileText className={`w-4 h-4 shrink-0 ${getFileIconColor(doc.type)}`} />
+                      <span className="truncate">{doc.name}</span>
+                    </td>
+                    <td className="py-3 text-sm text-[#6B7280]">{doc.pages}</td>
+                    <td className="py-3 text-sm text-[#6B7280]">{doc.uploadedAt}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="text-sm text-[#9CA3AF] py-8 text-center">No documents uploaded yet.</p>
+          )}
         </div>
 
         <div className="rounded-xl border border-[#E5E7EB] p-6 bg-white shadow-sm">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-base font-semibold text-[#111827]">Recent Chats</h2>
-            <button className="px-3 py-1.5 text-sm border border-[#E5E7EB] rounded-lg text-[#6B7280] hover:bg-gray-50 transition-colors">
-              View All
-            </button>
-          </div>
-          <div className="space-y-0">
-            {recentChatsData.map((chat, i) => (
-              <div
-                key={i}
-                className="flex items-start gap-3 py-3 border-b border-[#E5E7EB] last:border-b-0"
+            {recentChats.length > 0 && onTabChange && (
+              <button
+                onClick={() => onTabChange("chat")}
+                className="text-xs text-[#2563EB] hover:text-blue-700 font-medium transition-colors"
               >
-                <MessageCircle className="w-4 h-4 text-[#9CA3AF] mt-0.5 shrink-0" />
-                <div className="min-w-0">
-                  <p className="text-sm text-[#374151] truncate">{chat.question}</p>
-                  <p className="text-xs text-[#9CA3AF] mt-0.5">
-                    {chat.date}, {chat.time}
-                  </p>
-                </div>
-              </div>
-            ))}
+                View All
+              </button>
+            )}
           </div>
+          {recentChats.length > 0 ? (
+            <div className="space-y-0">
+              {recentChats.map((chat, i) => (
+                <div
+                  key={chat.id || i}
+                  className="flex items-start gap-3 py-3 border-b border-[#E5E7EB] last:border-b-0"
+                >
+                  <MessageCircle className="w-4 h-4 text-[#9CA3AF] mt-0.5 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-[#374151] truncate">
+                      {chat.first_question || chat.title}
+                    </p>
+                    <p className="text-xs text-[#9CA3AF] mt-0.5 flex items-center gap-1">
+                      <Clock className="w-3 h-3 inline" />
+                      {formatRelativeTime(chat.updated_at || chat.created_at)}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-[#9CA3AF] py-8 text-center">No conversations yet. Start a chat!</p>
+          )}
         </div>
       </div>
     </div>

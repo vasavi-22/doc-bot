@@ -1,12 +1,28 @@
 from flask import Blueprint, request, jsonify, Response, stream_with_context, g
 from services.intent_classifier import classify_intent, INTENT_GENERAL_CONVERSATION
-from services.conversation_service import add_user_message, add_assistant_message, new_chat
+from services.conversation_service import add_user_message, add_assistant_message, new_chat, get_chat
 from services.conversational_rag import query_conversational_rag, query_conversational_rag_stream
 from utils.logger import logger
 from middleware.auth_middleware import jwt_required
+from database import update_chat_title
 import json
+import re
 
 chat_bp = Blueprint("chat", __name__)
+
+
+def _auto_title_chat(chat_id, first_message):
+    """Auto-generate a title from the first user message if chat is still titled 'New Chat'."""
+    try:
+        chat = get_chat(chat_id)
+        if chat and chat.get("title") == "New Chat":
+            # Derive title from the message
+            clean = re.sub(r'\s+', ' ', first_message).strip()
+            title = (clean[:47] + "...") if len(clean) > 50 else clean
+            update_chat_title(chat_id, title)
+            logger.info(f"Auto-titled chat {chat_id}: {title}")
+    except Exception as e:
+        logger.warning(f"Failed to auto-title chat {chat_id}: {e}")
 
 
 @chat_bp.route("/chat", methods=["POST"])
@@ -29,6 +45,9 @@ def chat():
         if not chat_id:
             chat = new_chat(g.user_id)
             chat_id = chat["id"]
+
+        # Auto-title the chat on first message
+        _auto_title_chat(chat_id, question)
 
         # Save user message
         add_user_message(chat_id, question)
@@ -87,6 +106,9 @@ def chat_stream():
         if not chat_id:
             chat = new_chat(g.user_id)
             chat_id = chat["id"]
+
+        # Auto-title the chat on first message (BEFORE saving user message)
+        _auto_title_chat(chat_id, question)
 
         # Save user message
         add_user_message(chat_id, question)

@@ -91,7 +91,7 @@ export default function Documents() {
           document_id: doc.document_id,
           name: displayName,
           type,
-          pages: doc.chunks || 0,
+          pages: doc.total_pages || doc.chunks || 0,
           uploadedAt: doc.upload_time
             ? new Date(doc.upload_time).toLocaleDateString()
             : "Unknown",

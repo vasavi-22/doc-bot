@@ -10,6 +10,7 @@ from services.conversation_service import (
     add_assistant_message,
     get_chat_history,
 )
+from database import get_document_stats, get_chat_stats, get_recent_chats
 from utils.logger import logger
 
 conversations_bp = Blueprint("conversations", __name__, url_prefix="/api/conversations")
@@ -113,4 +114,26 @@ def get_messages(chat_id):
         return jsonify({"messages": messages}), 200
     except Exception as e:
         logger.error(f"Get messages failed: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+@conversations_bp.route("/dashboard-stats", methods=["GET"])
+@jwt_required
+def dashboard_stats():
+    """Get dashboard statistics for the authenticated user."""
+    try:
+        user_id = g.user_id
+        doc_stats = get_document_stats(user_id)
+        chat_stats = get_chat_stats(user_id)
+        recent = get_recent_chats(user_id)
+
+        return jsonify({
+            "total_documents": doc_stats["total_documents"],
+            "total_pages": doc_stats["total_pages"],
+            "total_chats": chat_stats["total_chats"],
+            "total_questions": chat_stats["total_questions"],
+            "recent_chats": recent
+        }), 200
+    except Exception as e:
+        logger.error(f"Dashboard stats failed: {str(e)}")
         return jsonify({"error": str(e)}), 500

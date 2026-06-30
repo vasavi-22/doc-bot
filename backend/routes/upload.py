@@ -11,6 +11,7 @@ import uuid
 from services.chunk_metadata import build_chunk_metadata
 from database import save_chunks, save_document_metadata, get_documents_by_user, delete_document_meta
 from middleware.auth_middleware import jwt_required
+from pypdf import PdfReader
 
 upload_bp = Blueprint("upload", __name__)
 
@@ -67,6 +68,16 @@ def upload_file():
         chunks = load_pdf(path)
         texts = [c["text"] for c in chunks]
 
+        # Count actual PDF pages
+        total_pages = 0
+        try:
+            reader = PdfReader(path)
+            total_pages = len(reader.pages)
+        except Exception:
+            # Fallback: derive from chunk page numbers
+            if chunks:
+                total_pages = max(c["page_number"] for c in chunks)
+
         document_id = str(uuid.uuid4())
 
         metadata_list = build_chunk_metadata(
@@ -91,7 +102,8 @@ def upload_file():
             chunks=len(texts),
             owner=user_id,
             category="general",
-            tags=""
+            tags="",
+            total_pages=total_pages
         )
 
         chunk_records = []
@@ -132,14 +144,17 @@ def get_documents():
 
         docs = []
         for row in rows:
-            docs.append({
+            raw_total_pages = row[9] if len(row) > 9 else 0
+            doc = {
                 "document_id": row[0],
                 "filename": row[2],
                 "original_filename": row[3],
                 "upload_time": row[4],
                 "chunks": row[5],
-                "category": row[7] if len(row) > 7 else None
-            })
+                "category": row[7] if len(row) > 7 else None,
+                "total_pages": raw_total_pages or row[5]
+            }
+            docs.append(doc)
 
         return jsonify({"documents": docs})
 

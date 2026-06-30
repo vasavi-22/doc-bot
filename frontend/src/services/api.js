@@ -138,6 +138,9 @@ export const deleteConversation = (chatId) =>
 export const getMessages = (chatId) =>
   axios.get(`${API}/api/conversations/${chatId}/messages`);
 
+export const getDashboardStats = () =>
+  axios.get(`${API}/api/conversations/dashboard-stats`);
+
 // Updated sendMessageStream to include chat_id
 export const sendMessageStreamWithChat = (message, chatId, onToken, onSources, onChatId, onError) => {
   const controller = new AbortController();

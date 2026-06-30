@@ -28,14 +28,29 @@ function ProtectedRoute({ children }) {
 
 function AppContent() {
   const [activeTab, setActiveTab] = useState("dashboard");
+  const [dashboardRefreshKey, setDashboardRefreshKey] = useState(0);
+
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    // Increment refresh key when dashboard becomes active so it refetches data
+    if (tab === "dashboard") {
+      setDashboardRefreshKey((k) => k + 1);
+    }
+  };
 
   return (
     <div className="flex h-screen bg-white">
-      <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
-      <main className="flex-1 overflow-auto">
-        {activeTab === "dashboard" && <Dashboard />}
-        {activeTab === "documents" && <Documents />}
-        {activeTab === "chat" && <ChatPage />}
+      <Sidebar activeTab={activeTab} onTabChange={handleTabChange} />
+      <main className="flex-1 overflow-auto relative">
+        <div className={activeTab === "dashboard" ? "h-full" : "hidden h-full"}>
+          <Dashboard refreshKey={dashboardRefreshKey} onTabChange={handleTabChange} />
+        </div>
+        <div className={activeTab === "documents" ? "h-full" : "hidden h-full"}>
+          <Documents />
+        </div>
+        <div className={activeTab === "chat" ? "h-full" : "hidden h-full"}>
+          <ChatPage />
+        </div>
       </main>
     </div>
   );

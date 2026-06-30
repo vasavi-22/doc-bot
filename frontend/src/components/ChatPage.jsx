@@ -5,7 +5,6 @@ import {
   getConversations,
   createConversation,
   getConversation,
-  updateConversation,
   deleteConversation,
 } from "../services/api";
 import MessageBubble from "./MessageBubble";
@@ -197,23 +196,19 @@ export default function ChatPage() {
     setInput("");
     setLoading(true);
 
-    // Auto-generate and persist title based on first user message
+    // Auto-generate title from first user message (backend also does this atomically)
     const conv = conversations.find((c) => c.id === activeConvId);
     if (conv && conv.title === "New Chat") {
-      // Clean up the message: remove leading/trailing whitespace, collapse multiple spaces
       const clean = userMessage.replace(/\s+/g, " ").trim();
-      // Truncate to a reasonable title length (50 chars max)
       const title =
         clean.length > 50 ? clean.slice(0, 47) + "..." : clean;
 
+      // Update local state immediately for responsive UI
       setConversations((prev) =>
         prev.map((c) =>
           c.id === activeConvId ? { ...c, title } : c
         )
       );
-
-      // Persist the title to the backend
-      updateConversation(activeConvId, { title }).catch(() => {});
     }
 
     // Cancel any previous stream in progress
