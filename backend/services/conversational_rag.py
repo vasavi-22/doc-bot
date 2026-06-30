@@ -49,7 +49,8 @@ def query_conversational_rag(
     user_id=None,
     filter_document_ids=None,
     filter_categories=None,
-    filter_tags=None
+    filter_tags=None,
+    user_role=None
 ):
     """
     Full conversational RAG query.
@@ -141,7 +142,8 @@ def query_conversational_rag_stream(
     user_id=None,
     filter_document_ids=None,
     filter_categories=None,
-    filter_tags=None
+    filter_tags=None,
+    user_role=None
 ):
     """
     Streaming conversational RAG — generator that yields SSE-formatted strings.
@@ -177,7 +179,8 @@ def query_conversational_rag_stream(
             user_id=user_id,
             filter_document_ids=filter_document_ids,
             filter_categories=filter_categories,
-            filter_tags=filter_tags
+            filter_tags=filter_tags,
+            user_role=user_role
         )
 
         # Handle empty results when filters are active

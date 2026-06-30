@@ -13,7 +13,8 @@ RETRIEVAL_TOP_K = Config.RETRIEVAL_TOP_K
 
 
 def _retrieve_context(question, document_id=None, category=None, owner=None, user_id=None,
-                       filter_document_ids=None, filter_categories=None, filter_tags=None):
+                       filter_document_ids=None, filter_categories=None, filter_tags=None,
+                       user_role=None):
     """Shared retrieval logic. Returns (context, unique_sources)."""
     logger.info("Querying Pinecone (candidate generation)")
 
@@ -30,7 +31,8 @@ def _retrieve_context(question, document_id=None, category=None, owner=None, use
         user_id=user_id,
         filter_document_ids=filter_document_ids,
         filter_categories=filter_categories,
-        filter_tags=filter_tags
+        filter_tags=filter_tags,
+        user_role=user_role
     )
 
     # Apply score threshold to filter low-quality candidates
@@ -151,7 +153,8 @@ def _filter_sources(answer, unique_sources):
 
 
 def query_rag(question, document_id=None, category=None, owner=None, user_id=None,
-              filter_document_ids=None, filter_categories=None, filter_tags=None):
+              filter_document_ids=None, filter_categories=None, filter_tags=None,
+              user_role=None):
     """Non-streaming RAG query — returns full answer dict."""
     try:
         if not GROQ_API_KEY:
@@ -161,7 +164,8 @@ def query_rag(question, document_id=None, category=None, owner=None, user_id=Non
             question, document_id, category, owner, user_id,
             filter_document_ids=filter_document_ids,
             filter_categories=filter_categories,
-            filter_tags=filter_tags
+            filter_tags=filter_tags,
+            user_role=user_role
         )
 
         # Handle empty results when filters are active
@@ -206,7 +210,8 @@ def query_rag(question, document_id=None, category=None, owner=None, user_id=Non
 
 
 def query_rag_stream(question, document_id=None, category=None, owner=None, user_id=None,
-                     filter_document_ids=None, filter_categories=None, filter_tags=None):
+                     filter_document_ids=None, filter_categories=None, filter_tags=None,
+                     user_role=None):
     """
     Streaming RAG query — generator that yields SSE-formatted strings.
 
@@ -225,7 +230,8 @@ def query_rag_stream(question, document_id=None, category=None, owner=None, user
             question, document_id, category, owner, user_id,
             filter_document_ids=filter_document_ids,
             filter_categories=filter_categories,
-            filter_tags=filter_tags
+            filter_tags=filter_tags,
+            user_role=user_role
         )
 
         # Handle empty results when filters are active

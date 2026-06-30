@@ -1,17 +1,24 @@
-import { Home, FileText, MessageCircle, LogOut } from "lucide-react";
+import { Home, FileText, MessageCircle, Users, LogOut, Shield } from "lucide-react";
 import { useAuth } from "../store/AuthContext";
 
-const navItems = [
+const baseNavItems = [
   { id: "dashboard", label: "Dashboard", icon: Home },
   { id: "documents", label: "Documents", icon: FileText },
   { id: "chat", label: "Chat", icon: MessageCircle },
 ];
 
+const adminNavItems = [
+  { id: "users", label: "Users", icon: Users },
+];
+
 export default function Sidebar({ activeTab, onTabChange }) {
-  const { user, logout } = useAuth();
+  const { user, logout, userRole } = useAuth();
   const initials = user?.name
     ? user.name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)
     : "U";
+  const isAdmin = userRole === "admin";
+
+  const navItems = isAdmin ? [...baseNavItems, ...adminNavItems] : baseNavItems;
 
   return (
     <aside className="w-[220px] bg-white border-r border-gray-200 flex flex-col h-screen shrink-0">
@@ -56,7 +63,15 @@ export default function Sidebar({ activeTab, onTabChange }) {
             {initials}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-[#111827] truncate">{user?.name || "User"}</p>
+            <div className="flex items-center gap-1.5">
+              <p className="text-sm font-medium text-[#111827] truncate">{user?.name || "User"}</p>
+              {isAdmin && (
+                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-[#FEF3C7] text-[#D97706] text-[10px] font-semibold">
+                  <Shield className="w-2.5 h-2.5" />
+                  ADMIN
+                </span>
+              )}
+            </div>
             <p className="text-xs text-[#9CA3AF] truncate">{user?.email || ""}</p>
           </div>
           <button

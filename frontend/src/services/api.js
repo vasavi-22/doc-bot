@@ -146,6 +146,17 @@ export const getDashboardStats = () =>
 export const getFilters = () =>
   axios.get(`${API}/api/filters`);
 
+// ── Phase 8: RBAC — Admin API calls ──
+
+export const getUsers = () =>
+  axios.get(`${API}/api/admin/users`);
+
+export const updateUserRole = (userId, role) =>
+  axios.patch(`${API}/api/admin/users/${userId}/role`, { role });
+
+export const deleteUser = (userId) =>
+  axios.delete(`${API}/api/admin/users/${userId}`);
+
 // Updated sendMessageStream to include chat_id and metadata filters
 export const sendMessageStreamWithChat = (message, chatId, onToken, onSources, onChatId, onError, filters, onNoResults) => {
   const controller = new AbortController();

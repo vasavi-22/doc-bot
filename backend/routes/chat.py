@@ -78,6 +78,7 @@ def chat():
             category=category,
             owner=owner,
             user_id=g.user_id,
+            user_role=g.user_role,
             filter_document_ids=filter_document_ids,
             filter_categories=filter_categories,
             filter_tags=filter_tags
@@ -154,6 +155,7 @@ def chat_stream():
                     category=category,
                     owner=owner,
                     user_id=g.user_id,
+                    user_role=g.user_role,
                     filter_document_ids=filter_document_ids,
                     filter_categories=filter_categories,
                     filter_tags=filter_tags

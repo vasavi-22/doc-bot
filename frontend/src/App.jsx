@@ -5,6 +5,7 @@ import Sidebar from "./components/Sidebar";
 import Dashboard from "./components/Dashboard";
 import Documents from "./components/Documents";
 import ChatPage from "./components/ChatPage";
+import Users from "./components/Users";
 import LoginPage from "./components/LoginPage";
 import RegisterPage from "./components/RegisterPage";
 
@@ -29,6 +30,8 @@ function ProtectedRoute({ children }) {
 function AppContent() {
   const [activeTab, setActiveTab] = useState("dashboard");
   const [dashboardRefreshKey, setDashboardRefreshKey] = useState(0);
+  const { userRole } = useAuth();
+  const isAdmin = userRole === "admin";
 
   const handleTabChange = (tab) => {
     setActiveTab(tab);
@@ -51,6 +54,11 @@ function AppContent() {
         <div className={activeTab === "chat" ? "h-full" : "hidden h-full"}>
           <ChatPage />
         </div>
+        {isAdmin && (
+          <div className={activeTab === "users" ? "h-full" : "hidden h-full"}>
+            <Users />
+          </div>
+        )}
       </main>
     </div>
   );

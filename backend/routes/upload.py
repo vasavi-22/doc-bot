@@ -1,3 +1,5 @@
+import json
+import sqlite3
 from flask import Blueprint, request, jsonify, send_from_directory, g
 import os
 
@@ -9,8 +11,8 @@ from utils.logger import logger
 from werkzeug.utils import secure_filename
 import uuid
 from services.chunk_metadata import build_chunk_metadata
-from database import save_chunks, save_document_metadata, get_documents_by_user, delete_document_meta
-from middleware.auth_middleware import jwt_required
+from database import save_chunks, save_document_metadata, get_documents_by_user, delete_document_meta, get_connection
+from middleware.auth_middleware import jwt_required, require_role
 from pypdf import PdfReader
 
 upload_bp = Blueprint("upload", __name__)
@@ -44,6 +46,7 @@ def get_user_upload_folder(user_id):
 def upload_file():
     try:
         user_id = g.user_id
+        user_role = g.user_role
 
         if "file" not in request.files:
             return jsonify({"error": "No file provided"}), 400
@@ -58,6 +61,19 @@ def upload_file():
 
         safe_filename = secure_filename(file.filename)
         unique_filename = f"{uuid.uuid4()}_{safe_filename}"
+
+        # ── Phase 8: RBAC — determine allowed_roles for document ──
+        allowed_roles_raw = request.form.get("allowed_roles", "")
+        if allowed_roles_raw:
+            try:
+                allowed_roles = json.loads(allowed_roles_raw)
+                if not isinstance(allowed_roles, list):
+                    allowed_roles = ["admin", "employee"]
+            except (json.JSONDecodeError, TypeError):
+                allowed_roles = ["admin", "employee"]
+        else:
+            # Default: shared with all roles
+            allowed_roles = ["admin", "employee"]
 
         # Store in user-specific folder
         user_folder = get_user_upload_folder(user_id)
@@ -87,7 +103,8 @@ def upload_file():
             owner=user_id,
             category="general",
             user_id=user_id,
-            tags=""
+            tags="",
+            allowed_roles=allowed_roles
         )
         embeddings = create_embeddings(texts)
         store_vectors(
@@ -104,7 +121,8 @@ def upload_file():
             owner=user_id,
             category="general",
             tags="",
-            total_pages=total_pages
+            total_pages=total_pages,
+            allowed_roles=allowed_roles
         )
 
         chunk_records = []
@@ -127,7 +145,8 @@ def upload_file():
         return jsonify({
             "message": "File uploaded successfully",
             "document_id": document_id,
-            "filename": unique_filename
+            "filename": unique_filename,
+            "allowed_roles": allowed_roles
         })
 
     except Exception as e:
@@ -138,10 +157,34 @@ def upload_file():
 @upload_bp.route("/documents", methods=["GET"])
 @jwt_required
 def get_documents():
-    """Get documents for the authenticated user."""
+    """Get documents for the authenticated user.
+    
+    Admins see all documents. Employees see their own documents.
+    """
     try:
         user_id = g.user_id
-        rows = get_documents_by_user(user_id)
+        user_role = g.user_role
+        
+        if user_role == "admin":
+            # Admin sees all documents
+            conn = get_connection()
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    SELECT document_id, user_id, filename, original_filename, upload_time,
+                           chunks, owner, category, tags, total_pages, allowed_roles
+                    FROM documents ORDER BY upload_time DESC
+                """)
+            except sqlite3.OperationalError:
+                cursor.execute("""
+                    SELECT document_id, user_id, filename, original_filename, upload_time,
+                           chunks, owner, category, tags, chunks as total_pages, '[]' as allowed_roles
+                    FROM documents ORDER BY upload_time DESC
+                """)
+            rows = cursor.fetchall()
+            conn.close()
+        else:
+            rows = get_documents_by_user(user_id)
 
         docs = []
         for row in rows:
@@ -169,21 +212,31 @@ def get_documents():
 def view_document(document_id):
     """View/download a document."""
     try:
-        user_id = g.user_id
-        rows = get_documents_by_user(user_id)
+        user_role = g.user_role
 
-        # Find the document by document_id
-        target = None
-        for row in rows:
-            if row[0] == document_id:
-                target = row
-                break
+        # Look up document by ID directly
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT document_id, user_id, filename FROM documents WHERE document_id = ?",
+            (document_id,)
+        )
+        target = cursor.fetchone()
+        conn.close()
 
         if not target:
             return jsonify({"error": "Document not found"}), 404
 
-        filename = target[2]  # stored filename
-        user_folder = get_user_upload_folder(user_id)
+        doc_user_id = target[1]
+        filename = target[2]
+
+        # Check access: admin can view any doc, others must have matching role
+        if user_role != "admin":
+            # Verify this user can access this document (by owner or role)
+            if doc_user_id != g.user_id:
+                return jsonify({"error": "Not authorized to view this document"}), 403
+
+        user_folder = get_user_upload_folder(doc_user_id)
         path = os.path.join(user_folder, filename)
 
         if not os.path.exists(path):
@@ -198,23 +251,26 @@ def view_document(document_id):
 
 @upload_bp.route("/documents/<document_id>", methods=["DELETE"])
 @jwt_required
+@require_role("admin")
 def delete_document(document_id):
-    """Delete a document."""
+    """Delete a document. Admin only."""
     try:
-        user_id = g.user_id
-        rows = get_documents_by_user(user_id)
-
-        target = None
-        for row in rows:
-            if row[0] == document_id:
-                target = row
-                break
+        # Admin can look up any document directly
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """SELECT document_id, user_id, filename FROM documents WHERE document_id = ?""",
+            (document_id,)
+        )
+        target = cursor.fetchone()
+        conn.close()
 
         if not target:
             return jsonify({"error": "Document not found"}), 404
 
         filename = target[2]
-        user_folder = get_user_upload_folder(user_id)
+        doc_user_id = target[1]
+        user_folder = get_user_upload_folder(doc_user_id)
         path = os.path.join(user_folder, filename)
 
         if os.path.exists(path):
@@ -222,9 +278,6 @@ def delete_document(document_id):
 
         # Delete from database
         delete_document_meta(document_id)
-
-        # Note: Vectors in Pinecone would need to be deleted separately
-        # For now, they'll be orphaned but filtered by user_id
 
         return jsonify({"message": "Deleted successfully"})
 

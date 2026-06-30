@@ -34,7 +34,8 @@ def hybrid_search(
     user_id=None,
     filter_document_ids=None,
     filter_categories=None,
-    filter_tags=None
+    filter_tags=None,
+    user_role=None
 ):
 
     # Dense Search
@@ -45,6 +46,21 @@ def hybrid_search(
     )
 
     pinecone_filter = {}
+
+    # ── Phase 8: RBAC — Role-based filtering ──
+    if user_role == "admin":
+        # Admin sees everything — no role filter needed
+        pass
+    else:
+        # Non-admin users: only see documents that allow their role
+        # RBAC replaces the user_id isolation: role-based access means
+        # users can see shared documents across the organization
+        pinecone_filter["allowed_roles"] = {"$in": [user_role or "employee"]}
+
+    # For admin, still keep the user_id filter if explicitly provided
+    # (e.g., filtering by owner) but not for non-admin (role filter suffices)
+    if user_role == "admin" and user_id:
+        pinecone_filter["user_id"] = user_id
 
     if document_id:
         pinecone_filter["document_id"] = document_id
@@ -63,9 +79,6 @@ def hybrid_search(
 
     if owner:
         pinecone_filter["owner"] = owner
-
-    if user_id:
-        pinecone_filter["user_id"] = user_id
 
     dense_results = query_vectors(
         query_embedding,
@@ -100,7 +113,8 @@ def hybrid_search(
         user_id=user_id,
         filter_document_ids=filter_document_ids,
         filter_categories=filter_categories,
-        filter_tags=filter_tags
+        filter_tags=filter_tags,
+        user_role=user_role
     )
 
     # Normalize

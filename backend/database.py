@@ -1,4 +1,5 @@
 import sqlite3
+import json
 from datetime import datetime
 
 DB_NAME = "app.db"
@@ -18,6 +19,7 @@ def init_db():
             name TEXT NOT NULL,
             email TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'employee',
             created_at TEXT NOT NULL
         )
     """)
@@ -34,6 +36,7 @@ def init_db():
             owner TEXT,
             category TEXT,
             tags TEXT,
+            allowed_roles TEXT DEFAULT '["admin","employee"]',
             FOREIGN KEY (user_id) REFERENCES users(id)
         )
     """)
@@ -70,6 +73,18 @@ def init_db():
     # Add total_pages column to documents if upgrading
     try:
         cursor.execute("ALTER TABLE documents ADD COLUMN total_pages INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
+    # Add role column to users if upgrading
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'employee'")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
+    # Add allowed_roles column to documents if upgrading
+    try:
+        cursor.execute("ALTER TABLE documents ADD COLUMN allowed_roles TEXT DEFAULT '[]'")
     except sqlite3.OperationalError:
         pass  # Column already exists
 
@@ -243,7 +258,7 @@ def get_messages_by_chat(chat_id, limit=50):
 def get_user_by_email(email):
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT id, name, email, password_hash, created_at FROM users WHERE email = ?", (email,))
+    cursor.execute("SELECT id, name, email, password_hash, role, created_at FROM users WHERE email = ?", (email,))
     row = cursor.fetchone()
     conn.close()
     if row:
@@ -252,7 +267,8 @@ def get_user_by_email(email):
             "name": row[1],
             "email": row[2],
             "password_hash": row[3],
-            "created_at": row[4]
+            "role": row[4],
+            "created_at": row[5]
         }
     return None
 
@@ -260,7 +276,7 @@ def get_user_by_email(email):
 def get_user_by_id(user_id):
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT id, name, email, password_hash, created_at FROM users WHERE id = ?", (user_id,))
+    cursor.execute("SELECT id, name, email, password_hash, role, created_at FROM users WHERE id = ?", (user_id,))
     row = cursor.fetchone()
     conn.close()
     if row:
@@ -269,34 +285,66 @@ def get_user_by_id(user_id):
             "name": row[1],
             "email": row[2],
             "password_hash": row[3],
-            "created_at": row[4]
+            "role": row[4],
+            "created_at": row[5]
         }
     return None
 
 
-def create_user(user_id, name, email, password_hash, created_at):
+def create_user(user_id, name, email, password_hash, created_at, role="employee"):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT INTO users (id, name, email, password_hash, created_at) VALUES (?, ?, ?, ?, ?)",
-        (user_id, name, email, password_hash, created_at)
+        "INSERT INTO users (id, name, email, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (user_id, name, email, password_hash, role, created_at)
     )
     conn.commit()
     conn.close()
+
+
+def update_user_role(user_id, role):
+    """Update a user's role. Only admin can call this."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET role = ? WHERE id = ?", (role, user_id))
+    conn.commit()
+    conn.close()
+
+
+def get_all_users():
+    """Get all users (admin function)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, name, email, role, created_at FROM users ORDER BY created_at DESC")
+    rows = cursor.fetchall()
+    conn.close()
+    return [{
+        "id": r[0],
+        "name": r[1],
+        "email": r[2],
+        "role": r[3],
+        "created_at": r[4]
+    } for r in rows]
 
 
 # ── Document helpers ──
 
 
 def save_document_metadata(document_id, user_id, filename, original_filename, chunks,
-                            owner="default", category="general", tags="", total_pages=None):
+                            owner="default", category="general", tags="", total_pages=None,
+                            allowed_roles=None):
     conn = get_connection()
     cursor = conn.cursor()
+    if allowed_roles is None:
+        allowed_roles = json.dumps(["admin", "employee"])
+    elif isinstance(allowed_roles, list):
+        allowed_roles = json.dumps(allowed_roles)
+
     cursor.execute("""
         INSERT INTO documents
         (document_id, user_id, filename, original_filename, upload_time,
-         chunks, owner, category, tags, total_pages)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         chunks, owner, category, tags, total_pages, allowed_roles)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         document_id,
         user_id,
@@ -307,7 +355,8 @@ def save_document_metadata(document_id, user_id, filename, original_filename, ch
         owner,
         category,
         tags,
-        total_pages or chunks
+        total_pages or chunks,
+        allowed_roles
     ))
     conn.commit()
     conn.close()
@@ -319,20 +368,30 @@ def get_documents_by_user(user_id):
     try:
         cursor.execute("""
             SELECT document_id, user_id, filename, original_filename, upload_time,
-                   chunks, owner, category, tags, total_pages
+                   chunks, owner, category, tags, total_pages, allowed_roles
             FROM documents
             WHERE user_id = ?
             ORDER BY upload_time DESC
         """, (user_id,))
     except sqlite3.OperationalError:
         # Fallback if total_pages column doesn't exist yet
-        cursor.execute("""
-            SELECT document_id, user_id, filename, original_filename, upload_time,
-                   chunks, owner, category, tags, chunks as total_pages
-            FROM documents
-            WHERE user_id = ?
-            ORDER BY upload_time DESC
-        """, (user_id,))
+        try:
+            cursor.execute("""
+                SELECT document_id, user_id, filename, original_filename, upload_time,
+                       chunks, owner, category, tags, chunks as total_pages, allowed_roles
+                FROM documents
+                WHERE user_id = ?
+                ORDER BY upload_time DESC
+            """, (user_id,))
+        except sqlite3.OperationalError:
+            # Fallback if allowed_roles column doesn't exist yet
+            cursor.execute("""
+                SELECT document_id, user_id, filename, original_filename, upload_time,
+                       chunks, owner, category, tags, chunks as total_pages, '["admin","employee"]' as allowed_roles
+                FROM documents
+                WHERE user_id = ?
+                ORDER BY upload_time DESC
+            """, (user_id,))
     rows = cursor.fetchall()
     conn.close()
     return rows

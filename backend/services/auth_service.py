@@ -37,7 +37,10 @@ def decode_jwt(token):
 
 
 def register_user(name, email, password):
-    """Register a new user. Returns (success, result_dict)."""
+    """Register a new user. Returns (success, result_dict).
+
+    New users are created with the default 'employee' role.
+    """
     # Validate inputs
     if not name or not name.strip():
         return False, {"error": "Name is required"}
@@ -53,12 +56,12 @@ def register_user(name, email, password):
     if existing:
         return False, {"error": "Email already registered"}
 
-    # Create user
+    # Create user with default 'employee' role
     user_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
     password_hash = hash_password(password)
 
-    create_user(user_id, name.strip(), email.strip().lower(), password_hash, now)
+    create_user(user_id, name.strip(), email.strip().lower(), password_hash, now, role="employee")
 
     token = create_jwt(user_id)
 
@@ -67,7 +70,8 @@ def register_user(name, email, password):
         "user": {
             "id": user_id,
             "name": name.strip(),
-            "email": email.strip().lower()
+            "email": email.strip().lower(),
+            "role": "employee"
         }
     }
 
@@ -91,7 +95,8 @@ def login_user(email, password):
         "user": {
             "id": user["id"],
             "name": user["name"],
-            "email": user["email"]
+            "email": user["email"],
+            "role": user["role"]
         }
     }
 
@@ -105,5 +110,6 @@ def get_current_user(user_id):
         "id": user["id"],
         "name": user["name"],
         "email": user["email"],
+        "role": user["role"],
         "created_at": user["created_at"]
     }
