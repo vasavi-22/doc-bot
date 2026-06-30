@@ -14,6 +14,13 @@ Config.validate()
 from database import init_db
 init_db()
 
+# ── Phase 7: Pre-load the reranker model at startup ──
+from services.reranker import get_reranker
+try:
+    get_reranker()  # warm start
+except Exception as e:
+    print(f"Warning: Could not load reranker: {e}")
+
 app = Flask(__name__)
 
 CORS(

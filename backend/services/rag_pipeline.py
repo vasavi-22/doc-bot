@@ -2,25 +2,28 @@ import json
 import requests
 # from services.vector_store import query_vectors
 from services.hybrid_retriever import hybrid_search
+from services.reranker import rerank
 from config import Config
 from utils.logger import logger
 # from services.model_loader import get_model
 
 GROQ_API_KEY = Config.GROQ_API_KEY
 TOP_K_RESULTS = Config.TOP_K_RESULTS
+RETRIEVAL_TOP_K = Config.RETRIEVAL_TOP_K
 
 
 def _retrieve_context(question, document_id=None, category=None, owner=None, user_id=None,
                        filter_document_ids=None, filter_categories=None, filter_tags=None):
     """Shared retrieval logic. Returns (context, unique_sources)."""
-    logger.info("Querying Pinecone")
+    logger.info("Querying Pinecone (candidate generation)")
 
     # Check if any active metadata filters are set
     has_active_filters = bool(filter_document_ids or filter_categories or filter_tags)
 
+    # ── Phase 7: Retrieve more candidates (RETRIEVAL_TOP_K) for reranking ──
     matches = hybrid_search(
         question,
-        top_k=TOP_K_RESULTS,
+        top_k=RETRIEVAL_TOP_K,
         document_id=document_id,
         category=category,
         owner=owner,
@@ -30,38 +33,49 @@ def _retrieve_context(question, document_id=None, category=None, owner=None, use
         filter_tags=filter_tags
     )
 
+    # Apply score threshold to filter low-quality candidates
+    scored_matches = [m for m in matches if m.get("score", 0) > 0.15]
+
+    if not scored_matches:
+        if has_active_filters:
+            return "__NO_RESULTS__", []
+        return "", []
+
+    # ── Phase 7: Cross-encoder reranking ──
+    logger.info(f"Reranking {len(scored_matches)} candidate chunks")
+    reranked = rerank(question, scored_matches, top_k=TOP_K_RESULTS)
+
     context_chunks = []
     sources = []
 
-    for match in matches:
-        if match.get("score", 0) > 0.2:
-            metadata = match["metadata"]
-            filename = metadata.get("filename", "Unknown")
-            page_number = metadata.get("page_number", "N/A")
-            text = metadata.get("text", "")
-            category_meta = metadata.get("category", "")
-            tags_meta = metadata.get("tags", [])
-            # Enrich source with metadata
-            source_entry = {
-                "filename": filename,
-                "page": page_number
-            }
-            if category_meta:
-                source_entry["category"] = category_meta
-            if tags_meta:
-                tag_str = ", ".join(tags_meta) if isinstance(tags_meta, list) else str(tags_meta)
-                source_entry["tags"] = tag_str
+    for match in reranked:
+        metadata = match["metadata"]
+        filename = metadata.get("filename", "Unknown")
+        page_number = metadata.get("page_number", "N/A")
+        text = metadata.get("text", "")
+        category_meta = metadata.get("category", "")
+        tags_meta = metadata.get("tags", [])
+        # Enrich source with metadata
+        source_entry = {
+            "filename": filename,
+            "page": page_number
+        }
+        if category_meta:
+            source_entry["category"] = category_meta
+        if tags_meta:
+            tag_str = ", ".join(tags_meta) if isinstance(tags_meta, list) else str(tags_meta)
+            source_entry["tags"] = tag_str
 
-            context_chunks.append(
-                f"""
+        context_chunks.append(
+            f"""
         Document: {filename}
         Page: {page_number}
         Category: {category_meta}
 
         {text}
         """
-            )
-            sources.append(source_entry)
+        )
+        sources.append(source_entry)
 
     context = "\n\n".join(context_chunks)[:2000]
 

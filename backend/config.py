@@ -10,7 +10,10 @@ class Config:
     PINECONE_INDEX_NAME = "doc-bot-index"
     EMBEDDING_MODEL = "all-MiniLM-L6-v2"
     DIMENSION = 384
-    TOP_K_RESULTS = 3
+    TOP_K_RESULTS = 5
+    # ── Phase 7: Reranker ──
+    RETRIEVAL_TOP_K = 20       # How many chunks to fetch before reranking
+    RERANKER_MODEL = "BAAI/bge-reranker-base"
     CHUNK_SIZE = 500
     CHUNK_OVERLAP = 100
 
