@@ -46,7 +46,10 @@ def query_conversational_rag(
     document_id=None,
     category=None,
     owner=None,
-    user_id=None
+    user_id=None,
+    filter_document_ids=None,
+    filter_categories=None,
+    filter_tags=None
 ):
     """
     Full conversational RAG query.
@@ -55,8 +58,9 @@ def query_conversational_rag(
     1. Load chat history (last 10 messages via LangChain format)
     2. Rewrite the question to be standalone using history
     3. Retrieve relevant context
-    4. Generate answer with history + context
-    5. Filter sources
+    4. If filters active and no results, return empty message
+    5. Generate answer with history + context
+    6. Filter sources
     """
     try:
         if not Config.GROQ_API_KEY:
@@ -77,8 +81,20 @@ def query_conversational_rag(
             document_id=document_id,
             category=category,
             owner=owner,
-            user_id=user_id
+            user_id=user_id,
+            filter_document_ids=filter_document_ids,
+            filter_categories=filter_categories,
+            filter_tags=filter_tags
         )
+
+        # Handle empty results when filters are active
+        if context == "__NO_RESULTS__":
+            return {
+                "answer": "",
+                "sources": [],
+                "no_results": True,
+                "filters_active": bool(filter_document_ids or filter_categories or filter_tags)
+            }
 
         # Step 4: Generate answer with history + context
         llm = get_groq_llm_non_streaming(temperature=0.3 if context.strip() else 0.5)
@@ -122,7 +138,10 @@ def query_conversational_rag_stream(
     document_id=None,
     category=None,
     owner=None,
-    user_id=None
+    user_id=None,
+    filter_document_ids=None,
+    filter_categories=None,
+    filter_tags=None
 ):
     """
     Streaming conversational RAG — generator that yields SSE-formatted strings.
@@ -131,8 +150,9 @@ def query_conversational_rag_stream(
     1. Load chat history
     2. Rewrite question
     3. Retrieve context
-    4. Stream answer from Groq
-    5. Send sources at end
+    4. If filters active and no results, return empty message
+    5. Stream answer from Groq
+    6. Send sources at end
     """
     if not Config.GROQ_API_KEY:
         yield f"data: {json.dumps({'type': 'error', 'message': 'GROQ_API_KEY not set'})}\n\n"
@@ -154,8 +174,16 @@ def query_conversational_rag_stream(
             document_id=document_id,
             category=category,
             owner=owner,
-            user_id=user_id
+            user_id=user_id,
+            filter_document_ids=filter_document_ids,
+            filter_categories=filter_categories,
+            filter_tags=filter_tags
         )
+
+        # Handle empty results when filters are active
+        if context == "__NO_RESULTS__":
+            yield f"data: {json.dumps({'type': 'no_results', 'filters_active': True})}\n\n"
+            return
 
         # Step 4: Stream answer from Groq via LangChain
         llm = get_groq_llm(temperature=0.3 if context.strip() else 0.5)

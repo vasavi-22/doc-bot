@@ -31,7 +31,10 @@ def hybrid_search(
     document_id=None,
     category=None,
     owner=None,
-    user_id=None
+    user_id=None,
+    filter_document_ids=None,
+    filter_categories=None,
+    filter_tags=None
 ):
 
     # Dense Search
@@ -46,8 +49,17 @@ def hybrid_search(
     if document_id:
         pinecone_filter["document_id"] = document_id
 
+    if filter_document_ids:
+        pinecone_filter["document_id"] = {"$in": filter_document_ids}
+
     if category:
         pinecone_filter["category"] = category
+
+    if filter_categories:
+        pinecone_filter["category"] = {"$in": filter_categories}
+
+    if filter_tags:
+        pinecone_filter["tags"] = {"$in": filter_tags}
 
     if owner:
         pinecone_filter["owner"] = owner
@@ -85,7 +97,10 @@ def hybrid_search(
         document_id=document_id,
         category=category,
         owner=owner,
-        user_id=user_id
+        user_id=user_id,
+        filter_document_ids=filter_document_ids,
+        filter_categories=filter_categories,
+        filter_tags=filter_tags
     )
 
     # Normalize

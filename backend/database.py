@@ -403,6 +403,42 @@ def get_chunks(document_id=None, category=None, owner=None, user_id=None):
     return rows
 
 
+# ── Filter helpers ──
+
+
+def get_user_categories(user_id):
+    """Get distinct categories for a user's documents."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT DISTINCT category FROM documents WHERE user_id = ? AND category IS NOT NULL AND category != '' ORDER BY category",
+        (user_id,)
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return [r[0] for r in rows]
+
+
+def get_user_tags(user_id):
+    """Get distinct tags for a user's documents.
+    Tags are stored as comma-separated strings, so we split and deduplicate."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT tags FROM documents WHERE user_id = ? AND tags IS NOT NULL AND tags != ''",
+        (user_id,)
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    all_tags = set()
+    for (tags_str,) in rows:
+        for tag in tags_str.split(","):
+            tag = tag.strip()
+            if tag:
+                all_tags.add(tag)
+    return sorted(all_tags)
+
+
 # ── Stats helpers ──
 
 

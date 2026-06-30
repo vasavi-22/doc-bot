@@ -41,6 +41,11 @@ def chat():
         category = data.get("category")
         owner = data.get("owner")
 
+        # ── Phase 6: Metadata filter params ──
+        filter_document_ids = data.get("filter_document_ids")
+        filter_categories = data.get("filter_categories")
+        filter_tags = data.get("filter_tags")
+
         # If no chat_id provided, create a new chat
         if not chat_id:
             chat = new_chat(g.user_id)
@@ -72,7 +77,10 @@ def chat():
             document_id=document_id,
             category=category,
             owner=owner,
-            user_id=g.user_id
+            user_id=g.user_id,
+            filter_document_ids=filter_document_ids,
+            filter_categories=filter_categories,
+            filter_tags=filter_tags
         )
 
         if "error" not in answer:
@@ -101,6 +109,11 @@ def chat_stream():
         document_id = data.get("document_id")
         category = data.get("category")
         owner = data.get("owner")
+
+        # ── Phase 6: Metadata filter params ──
+        filter_document_ids = data.get("filter_document_ids")
+        filter_categories = data.get("filter_categories")
+        filter_tags = data.get("filter_tags")
 
         # If no chat_id provided, create a new chat
         if not chat_id:
@@ -132,6 +145,7 @@ def chat_stream():
             else:
                 full_answer = ""
                 final_sources = []
+                no_results = False
 
                 for event in query_conversational_rag_stream(
                     question=question,
@@ -139,7 +153,10 @@ def chat_stream():
                     document_id=document_id,
                     category=category,
                     owner=owner,
-                    user_id=g.user_id
+                    user_id=g.user_id,
+                    filter_document_ids=filter_document_ids,
+                    filter_categories=filter_categories,
+                    filter_tags=filter_tags
                 ):
                     try:
                         data_str = event[6:] if event.startswith("data: ") else event
@@ -148,14 +165,20 @@ def chat_stream():
                             full_answer += parsed.get("content", "")
                         elif parsed.get("type") == "sources":
                             final_sources = parsed.get("sources", [])
+                        elif parsed.get("type") == "no_results":
+                            no_results = True
                     except (json.JSONDecodeError, IndexError):
                         pass
                     yield event
 
-                if full_answer:
+                if no_results:
+                    # Don't save assistant message for empty results
+                    pass
+                elif full_answer:
                     add_assistant_message(chat_id, full_answer, final_sources)
 
-                yield f"data: {json.dumps({'type': 'chat_id', 'chat_id': chat_id})}\n\n"
+                if not no_results:
+                    yield f"data: {json.dumps({'type': 'chat_id', 'chat_id': chat_id})}\n\n"
 
         return Response(
             stream_with_context(generate()),

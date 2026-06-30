@@ -8,6 +8,7 @@ import {
   deleteConversation,
 } from "../services/api";
 import MessageBubble from "./MessageBubble";
+import FilterPanel from "./FilterPanel";
 import { useToast } from "./Toast";
 import ConfirmDialog from "./ConfirmDialog";
 
@@ -19,6 +20,7 @@ export default function ChatPage() {
   const [activeConvId, setActiveConvId] = useState(null);
   const [initialLoading, setInitialLoading] = useState(true);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [activeFilters, setActiveFilters] = useState({});
   const bottomRef = useRef(null);
   const abortRef = useRef(null);
 
@@ -259,6 +261,17 @@ export default function ChatPage() {
           streaming: false,
         });
         setLoading(false);
+      },
+      // filters (Phase 6 - metadata filtering)
+      activeFilters.hasFilters ? activeFilters : null,
+      // onNoResults
+      () => {
+        updateMessage(msgId, {
+          text: "No matching documents found for the selected filters.\n\nTry:\n• Removing filters\n• Selecting more documents\n• Searching all documents",
+          streaming: false,
+          noResults: true,
+        });
+        setLoading(false);
       }
     );
   };
@@ -325,6 +338,8 @@ export default function ChatPage() {
 
       {/* Chat Area */}
       <div className="flex-1 flex flex-col bg-white">
+        {/* Phase 6: Filter Panel */}
+        <FilterPanel onFiltersChange={setActiveFilters} />
         {messages.length === 0 ? (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center max-w-md">
@@ -349,6 +364,7 @@ export default function ChatPage() {
                   text={m.text}
                   sources={m.sources}
                   streaming={m.streaming}
+                  noResults={m.noResults}
                 />
               ))}
               <div ref={bottomRef} />

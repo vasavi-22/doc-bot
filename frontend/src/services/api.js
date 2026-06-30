@@ -141,8 +141,13 @@ export const getMessages = (chatId) =>
 export const getDashboardStats = () =>
   axios.get(`${API}/api/conversations/dashboard-stats`);
 
-// Updated sendMessageStream to include chat_id
-export const sendMessageStreamWithChat = (message, chatId, onToken, onSources, onChatId, onError) => {
+// ── Phase 6: Metadata Filters ──
+
+export const getFilters = () =>
+  axios.get(`${API}/api/filters`);
+
+// Updated sendMessageStream to include chat_id and metadata filters
+export const sendMessageStreamWithChat = (message, chatId, onToken, onSources, onChatId, onError, filters, onNoResults) => {
   const controller = new AbortController();
   const token = localStorage.getItem("token");
 
@@ -152,7 +157,13 @@ export const sendMessageStreamWithChat = (message, chatId, onToken, onSources, o
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-    body: JSON.stringify({ message, chat_id: chatId }),
+    body: JSON.stringify({
+      message,
+      chat_id: chatId,
+      filter_document_ids: filters?.filter_document_ids || undefined,
+      filter_categories: filters?.filter_categories || undefined,
+      filter_tags: filters?.filter_tags || undefined,
+    }),
     signal: controller.signal,
   })
     .then(async (response) => {
@@ -175,6 +186,8 @@ export const sendMessageStreamWithChat = (message, chatId, onToken, onSources, o
             onToken(data.content);
           } else if (data.type === "sources") {
             onSources(data.sources || []);
+          } else if (data.type === "no_results") {
+            if (onNoResults) onNoResults();
           } else if (data.type === "chat_id") {
             onChatId(data.chat_id);
           } else if (data.type === "error") {

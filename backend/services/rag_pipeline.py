@@ -10,19 +10,13 @@ GROQ_API_KEY = Config.GROQ_API_KEY
 TOP_K_RESULTS = Config.TOP_K_RESULTS
 
 
-def _retrieve_context(question, document_id=None, category=None, owner=None, user_id=None):
+def _retrieve_context(question, document_id=None, category=None, owner=None, user_id=None,
+                       filter_document_ids=None, filter_categories=None, filter_tags=None):
     """Shared retrieval logic. Returns (context, unique_sources)."""
     logger.info("Querying Pinecone")
 
-    pinecone_filter = {}
-    if document_id:
-        pinecone_filter["document_id"] = document_id
-    if category:
-        pinecone_filter["category"] = category
-    if owner:
-        pinecone_filter["owner"] = owner
-    if user_id:
-        pinecone_filter["user_id"] = user_id
+    # Check if any active metadata filters are set
+    has_active_filters = bool(filter_document_ids or filter_categories or filter_tags)
 
     matches = hybrid_search(
         question,
@@ -30,7 +24,10 @@ def _retrieve_context(question, document_id=None, category=None, owner=None, use
         document_id=document_id,
         category=category,
         owner=owner,
-        user_id=user_id
+        user_id=user_id,
+        filter_document_ids=filter_document_ids,
+        filter_categories=filter_categories,
+        filter_tags=filter_tags
     )
 
     context_chunks = []
@@ -42,27 +39,41 @@ def _retrieve_context(question, document_id=None, category=None, owner=None, use
             filename = metadata.get("filename", "Unknown")
             page_number = metadata.get("page_number", "N/A")
             text = metadata.get("text", "")
+            category_meta = metadata.get("category", "")
+            tags_meta = metadata.get("tags", [])
+            # Enrich source with metadata
+            source_entry = {
+                "filename": filename,
+                "page": page_number
+            }
+            if category_meta:
+                source_entry["category"] = category_meta
+            if tags_meta:
+                tag_str = ", ".join(tags_meta) if isinstance(tags_meta, list) else str(tags_meta)
+                source_entry["tags"] = tag_str
 
             context_chunks.append(
                 f"""
         Document: {filename}
         Page: {page_number}
+        Category: {category_meta}
 
         {text}
         """
             )
-            sources.append({
-                "filename": filename,
-                "page": page_number
-            })
+            sources.append(source_entry)
 
     context = "\n\n".join(context_chunks)[:2000]
+
+    # Handle empty results when filters are active
+    if has_active_filters and not sources:
+        return "__NO_RESULTS__", []
 
     # Deduplicate sources
     seen = set()
     unique_sources = []
     for source in sources:
-        key = (source["filename"], source["page"])
+        key = (source["filename"], str(source.get("page", "")))
         if key not in seen:
             seen.add(key)
             unique_sources.append(source)
@@ -125,13 +136,23 @@ def _filter_sources(answer, unique_sources):
     return sources_used
 
 
-def query_rag(question, document_id=None, category=None, owner=None, user_id=None):
+def query_rag(question, document_id=None, category=None, owner=None, user_id=None,
+              filter_document_ids=None, filter_categories=None, filter_tags=None):
     """Non-streaming RAG query — returns full answer dict."""
     try:
         if not GROQ_API_KEY:
             return {"error": "GROQ_API_KEY not set"}
 
-        context, unique_sources = _retrieve_context(question, document_id, category, owner, user_id)
+        context, unique_sources = _retrieve_context(
+            question, document_id, category, owner, user_id,
+            filter_document_ids=filter_document_ids,
+            filter_categories=filter_categories,
+            filter_tags=filter_tags
+        )
+
+        # Handle empty results when filters are active
+        if context == "__NO_RESULTS__":
+            return {"answer": "", "sources": [], "no_results": True}
         system_prompt, user_content, temperature = _build_prompt(question, context)
 
         response = requests.post(
@@ -170,7 +191,8 @@ def query_rag(question, document_id=None, category=None, owner=None, user_id=Non
         return {"error": f"Error: {str(e)}"}
 
 
-def query_rag_stream(question, document_id=None, category=None, owner=None, user_id=None):
+def query_rag_stream(question, document_id=None, category=None, owner=None, user_id=None,
+                     filter_document_ids=None, filter_categories=None, filter_tags=None):
     """
     Streaming RAG query — generator that yields SSE-formatted strings.
 
@@ -185,7 +207,18 @@ def query_rag_stream(question, document_id=None, category=None, owner=None, user
         return
 
     try:
-        context, unique_sources = _retrieve_context(question, document_id, category, owner, user_id)
+        context, unique_sources = _retrieve_context(
+            question, document_id, category, owner, user_id,
+            filter_document_ids=filter_document_ids,
+            filter_categories=filter_categories,
+            filter_tags=filter_tags
+        )
+
+        # Handle empty results when filters are active
+        if context == "__NO_RESULTS__":
+            yield f"data: {json.dumps({'type': 'no_results', 'filters_active': True})}\n\n"
+            return
+
         system_prompt, user_content, temperature = _build_prompt(question, context)
 
         # Make streaming request to Groq

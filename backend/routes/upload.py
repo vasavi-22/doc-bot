@@ -86,7 +86,8 @@ def upload_file():
             filename=safe_filename,
             owner=user_id,
             category="general",
-            user_id=user_id
+            user_id=user_id,
+            tags=""
         )
         embeddings = create_embeddings(texts)
         store_vectors(
