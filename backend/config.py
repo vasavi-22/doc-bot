@@ -20,6 +20,12 @@ class Config:
     JWT_SECRET = os.getenv("JWT_SECRET", "doc-bot-secret-key-change-in-production")
     JWT_EXPIRATION_HOURS = 24
 
+    # ── Phase 11: LangGraph feature flag ──
+    # Set to "graph" to use the new LangGraph state machine, or "linear"
+    # to use the original linear pipeline. Allows side-by-side comparison
+    # and easy rollback.
+    RAG_PIPELINE_MODE = os.getenv("RAG_PIPELINE_MODE", "graph").lower()
+
     @classmethod
     def validate(cls):
         required = {

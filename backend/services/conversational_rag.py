@@ -1,43 +1,65 @@
+"""
+Phase 11 — Conversational RAG with LangGraph Orchestration
+
+The public API surface remains unchanged so routes/chat.py does not need
+any modifications. Behind the scenes, the linear pipeline is replaced
+by a LangGraph-driven state machine.
+
+Feature flag: Set Config.RAG_PIPELINE_MODE to "graph" (default) or "linear".
+"""
+
 import json
-import time
-from langchain_core.runnables import RunnablePassthrough
 from langchain_core.messages import HumanMessage, AIMessage
 
-from services.llm import get_groq_llm, get_groq_llm_non_streaming
-from services.prompts import CONDENSE_QUESTION_PROMPT, QA_PROMPT, GENERAL_QA_PROMPT
-from services.rag_pipeline import _retrieve_context, _filter_sources
+from services.llm import get_groq_llm
 from services.conversation_service import build_langchain_history
 from services.langfuse_tracing import safe_span, safe_generation, end_span
 from config import Config
 from utils.logger import logger
 
-TOP_K_RESULTS = Config.TOP_K_RESULTS
+
+# ── Dispatch helpers ─────────────────────────────────────────────────────────
+
+def _use_graph_mode() -> bool:
+    """Check the feature flag to decide which pipeline to use."""
+    return Config.RAG_PIPELINE_MODE == "graph"
 
 
-# ── Question rewriting (history-aware) ────────────────────────────────────────
+def _run_graph_pipeline(
+    question,
+    chat_id=None,
+    document_id=None,
+    category=None,
+    owner=None,
+    user_id=None,
+    user_role=None,
+    filter_document_ids=None,
+    filter_categories=None,
+    filter_tags=None,
+    langfuse_trace=None,
+    chat_history_lc=None,
+):
+    """Run the LangGraph state machine and return the result state."""
+    from graph import create_initial_state, run_rag_pipeline
 
-def _rewrite_question(question, chat_history_lc):
-    """Rewrite a follow-up question into a standalone question using LangChain.
+    initial_state = create_initial_state(
+        question=question,
+        chat_id=chat_id,
+        document_id=document_id,
+        category=category,
+        owner=owner,
+        user_id=user_id,
+        user_role=user_role,
+        filter_document_ids=filter_document_ids,
+        filter_categories=filter_categories,
+        filter_tags=filter_tags,
+        langfuse_trace=langfuse_trace,
+        chat_history=chat_history_lc or [],
+    )
 
-    If there's no chat history, returns the original question.
-    If the question is already standalone, it's returned as-is.
-    """
-    if not chat_history_lc:
-        return question
-
-    try:
-        llm = get_groq_llm_non_streaming(temperature=0.1)
-        chain = CONDENSE_QUESTION_PROMPT | llm
-        result = chain.invoke({
-            "chat_history": chat_history_lc,
-            "question": question,
-        })
-        rewritten = result.content.strip()
-        logger.info(f"Question rewritten: '{question[:60]}' -> '{rewritten[:60]}'")
-        return rewritten
-    except Exception as e:
-        logger.error(f"Question rewriting failed: {e}. Using original question.")
-        return question
+    config = {"recursion_limit": 25}
+    result = run_rag_pipeline(initial_state, config)
+    return result
 
 
 # ── Main conversational RAG (non-streaming) ───────────────────────────────────
@@ -58,108 +80,129 @@ def query_conversational_rag(
     """
     Full conversational RAG query.
 
-    Flow:
-    1. Load chat history (last 10 messages via LangChain format)
-    2. Rewrite the question to be standalone using history
-    3. Retrieve relevant context
-    4. If filters active and no results, return empty message
-    5. Generate answer with history + context
-    6. Filter sources
+    Uses LangGraph state machine (Phase 11) or falls back to linear pipeline
+    based on the RAG_PIPELINE_MODE feature flag.
+
+    LangGraph Flow:
+    1. Load chat history
+    2. Rewrite question → Retriever → Need More Search?
+    3. Reranker → Generator → Validator
+    4. Return answer with sources
     """
-    gen_span = None
     try:
         if not Config.GROQ_API_KEY:
             return {"error": "GROQ_API_KEY not set"}
 
-        # Step 1: Load chat history
+        # ── Load chat history (shared between both modes) ──
         chat_history_lc = []
         if chat_id:
             chat_history_lc = build_langchain_history(chat_id, max_messages=10)
             logger.info(f"Loaded {len(chat_history_lc)} history messages for chat {chat_id}")
 
-        # Step 2: Rewrite question using history
-        standalone_question = _rewrite_question(question, chat_history_lc)
+        if _use_graph_mode():
+            # ── Phase 11: LangGraph state machine (includes search quality
+            #     check, retry, rerank, generation, and validation) ──
+            result = _run_graph_pipeline(
+                question=question,
+                chat_id=chat_id,
+                document_id=document_id,
+                category=category,
+                owner=owner,
+                user_id=user_id,
+                user_role=user_role,
+                filter_document_ids=filter_document_ids,
+                filter_categories=filter_categories,
+                filter_tags=filter_tags,
+                langfuse_trace=langfuse_trace,
+                chat_history_lc=chat_history_lc,
+            )
 
-        # Step 3: Retrieve context using the standalone question
-        # ── LangFuse: Retrieval span ──
-        ret_span = safe_span(langfuse_trace, "retrieval",
-            input={"question": standalone_question, "filters": {
-                "document_ids": filter_document_ids,
-                "categories": filter_categories,
-                "tags": filter_tags
-            }}
-        )
-        context, unique_sources = _retrieve_context(
-            standalone_question,
-            document_id=document_id,
-            category=category,
-            owner=owner,
-            user_id=user_id,
-            filter_document_ids=filter_document_ids,
-            filter_categories=filter_categories,
-            filter_tags=filter_tags
-        )
-        end_span(ret_span)
+            if result.get("error"):
+                return {"error": result["error"]}
 
-        # Handle empty results when filters are active
-        if context == "__NO_RESULTS__":
+            if result.get("no_results"):
+                has_active_filters = bool(
+                    filter_document_ids or filter_categories or filter_tags
+                )
+                return {
+                    "answer": "",
+                    "sources": [],
+                    "no_results": True,
+                    "filters_active": has_active_filters,
+                }
+
             return {
-                "answer": "",
-                "sources": [],
-                "no_results": True,
-                "filters_active": bool(filter_document_ids or filter_categories or filter_tags)
+                "answer": result.get("answer", ""),
+                "sources": result.get("sources", []),
             }
-
-        # Step 4: Generate answer with history + context
-        llm = get_groq_llm_non_streaming(temperature=0.3 if context.strip() else 0.5)
-
-        # ── LangFuse: Generation span ──
-        gen_span = safe_generation(langfuse_trace, "llm-call",
-            model="llama-3.3-70b-versatile",
-            model_parameters={"temperature": 0.3 if context.strip() else 0.5, "max_tokens": 1024},
-            input={
-                "question": standalone_question,
-                "context_length": len(context),
-                "has_history": bool(chat_history_lc)
-            }
-        )
-
-        if context.strip():
-            prompt = QA_PROMPT
-            chain = prompt | llm
-            result = chain.invoke({
-                "chat_history": chat_history_lc,
-                "context": context,
-                "question": standalone_question,
-            })
         else:
-            prompt = GENERAL_QA_PROMPT
-            chain = prompt | llm
-            result = chain.invoke({
-                "chat_history": chat_history_lc,
-                "question": standalone_question,
-            })
+            # ── Fallback: original linear pipeline ──
+            from services.rag_pipeline import _run_linear_pipeline
+            linear_result = _run_linear_pipeline(
+                question=question,
+                chat_id=chat_id,
+                document_id=document_id,
+                category=category,
+                owner=owner,
+                user_id=user_id,
+                user_role=user_role,
+                filter_document_ids=filter_document_ids,
+                filter_categories=filter_categories,
+                filter_tags=filter_tags,
+                langfuse_trace=langfuse_trace,
+                chat_history_lc=chat_history_lc,
+            )
 
-        answer = result.content.strip()
+            if linear_result.get("no_results"):
+                has_active_filters = bool(
+                    filter_document_ids or filter_categories or filter_tags
+                )
+                return {
+                    "answer": "",
+                    "sources": [],
+                    "no_results": True,
+                    "filters_active": has_active_filters,
+                }
 
-        # Step 5: Filter sources
-        sources_used = _filter_sources(answer, unique_sources) if context.strip() else []
+            # Linear pipeline only does retrieval + reranking.
+            # Generate the answer with the linear approach.
+            context = linear_result.get("context", "")
+            unique_sources = linear_result.get("unique_sources", [])
+            standalone_question = linear_result.get("standalone_question", question)
 
-        # ── LangFuse: Update generation with output, THEN end ──
-        if gen_span is not None:
-            try:
-                gen_span.update(output={"answer": answer[:500], "sources": sources_used})
-            except:
-                pass
-        end_span(gen_span)
+            from services.llm import get_groq_llm_non_streaming
+            from services.prompts import QA_PROMPT, GENERAL_QA_PROMPT
 
-        return {
-            "answer": answer,
-            "sources": sources_used
-        }
+            llm = get_groq_llm_non_streaming(
+                temperature=0.3 if context.strip() else 0.5
+            )
+
+            if context.strip():
+                prompt = QA_PROMPT
+                chain = prompt | llm
+                gen_result = chain.invoke({
+                    "chat_history": chat_history_lc,
+                    "context": context,
+                    "question": standalone_question,
+                })
+            else:
+                prompt = GENERAL_QA_PROMPT
+                chain = prompt | llm
+                gen_result = chain.invoke({
+                    "chat_history": chat_history_lc,
+                    "question": standalone_question,
+                })
+
+            answer = gen_result.content.strip()
+            from services.rag_pipeline import _filter_sources
+            sources_used = _filter_sources(answer, unique_sources) if context.strip() else []
+
+            return {
+                "answer": answer,
+                "sources": sources_used,
+            }
 
     except Exception as e:
-        end_span(gen_span)
         logger.error(f"Conversational RAG error: {str(e)}")
         return {"error": f"Error: {str(e)}"}
 
@@ -182,13 +225,8 @@ def query_conversational_rag_stream(
     """
     Streaming conversational RAG — generator that yields SSE-formatted strings.
 
-    Flow:
-    1. Load chat history
-    2. Rewrite question
-    3. Retrieve context
-    4. If filters active and no results, return empty message
-    5. Stream answer from Groq
-    6. Send sources at end
+    Uses the LangGraph graph for retrieval + evaluation + reranking,
+    then streams the answer from Groq for real-time token delivery.
     """
     gen_span = None
     if not Config.GROQ_API_KEY:
@@ -202,40 +240,41 @@ def query_conversational_rag_stream(
             chat_history_lc = build_langchain_history(chat_id, max_messages=10)
             logger.info(f"Stream - loaded {len(chat_history_lc)} history messages for chat {chat_id}")
 
-        # Step 2: Rewrite question
-        standalone_question = _rewrite_question(question, chat_history_lc)
-
-        # Step 3: Retrieve context
-        # ── LangFuse: Retrieval span ──
-        ret_span = safe_span(langfuse_trace, "retrieval",
-            input={"question": standalone_question, "filters": {
-                "document_ids": filter_document_ids,
-                "categories": filter_categories,
-                "tags": filter_tags
-            }}
-        )
-        context, unique_sources = _retrieve_context(
-            standalone_question,
+        # Step 2: Run retrieval prep (retrieval + reranking only — no generation)
+        # Uses the linear prep pipeline to avoid wasteful LLM calls (the graph's
+        # generation + validation loop is incompatible with streaming output).
+        from services.rag_pipeline import _run_linear_pipeline
+        result = _run_linear_pipeline(
+            question=question,
+            chat_id=chat_id,
             document_id=document_id,
             category=category,
             owner=owner,
             user_id=user_id,
+            user_role=user_role,
             filter_document_ids=filter_document_ids,
             filter_categories=filter_categories,
             filter_tags=filter_tags,
-            user_role=user_role
+            langfuse_trace=langfuse_trace,
+            chat_history_lc=chat_history_lc,
         )
-        end_span(ret_span)
 
-        # Handle empty results when filters are active
-        if context == "__NO_RESULTS__":
+        if result.get("error"):
+            yield f"data: {json.dumps({'type': 'error', 'message': result['error']})}\n\n"
+            return
+
+        context = result.get("context", "")
+        unique_sources = result.get("unique_sources", [])
+        no_results = result.get("no_results", False)
+        standalone_question = result.get("standalone_question", question)
+
+        if context == "__NO_RESULTS__" or no_results:
             yield f"data: {json.dumps({'type': 'no_results', 'filters_active': True})}\n\n"
             return
 
-        # Step 4: Stream answer from Groq via LangChain
+        # Step 3: Stream answer from Groq via LangChain
         llm = get_groq_llm(temperature=0.3 if context.strip() else 0.5)
 
-        # ── LangFuse: Generation span ──
         gen_span = safe_generation(langfuse_trace, "llm-call",
             model="llama-3.3-70b-versatile",
             model_parameters={"temperature": 0.3 if context.strip() else 0.5, "max_tokens": 1024},
@@ -247,6 +286,7 @@ def query_conversational_rag_stream(
         )
 
         if context.strip():
+            from services.prompts import QA_PROMPT
             prompt = QA_PROMPT
             chain = prompt | llm
             inputs = {
@@ -255,6 +295,7 @@ def query_conversational_rag_stream(
                 "question": standalone_question,
             }
         else:
+            from services.prompts import GENERAL_QA_PROMPT
             prompt = GENERAL_QA_PROMPT
             chain = prompt | llm
             inputs = {
@@ -268,10 +309,10 @@ def query_conversational_rag_stream(
                 full_answer += chunk.content
                 yield f"data: {json.dumps({'type': 'token', 'content': chunk.content})}\n\n"
 
-        # Step 5: Filter and send sources
+        # Step 4: Filter sources
+        from services.rag_pipeline import _filter_sources
         sources_used = _filter_sources(full_answer, unique_sources) if context.strip() else []
 
-        # ── LangFuse: Update generation with output, THEN end ──
         if gen_span is not None:
             try:
                 gen_span.update(output={"answer": full_answer[:500], "sources": sources_used})
