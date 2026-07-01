@@ -311,6 +311,16 @@ def update_user_role(user_id, role):
     conn.close()
 
 
+def count_users():
+    """Get total number of registered users."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM users")
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count
+
+
 def get_all_users():
     """Get all users (admin function)."""
     conn = get_connection()

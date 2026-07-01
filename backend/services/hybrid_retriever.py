@@ -49,18 +49,14 @@ def hybrid_search(
 
     # ── Phase 8: RBAC — Role-based filtering ──
     if user_role == "admin":
-        # Admin sees everything — no role filter needed
-        pass
+        # Admin sees everything — no document-level filter needed
+        # If admin explicitly filters by user_id, respect that
+        if user_id:
+            pinecone_filter["user_id"] = user_id
     else:
-        # Non-admin users: only see documents that allow their role
-        # RBAC replaces the user_id isolation: role-based access means
-        # users can see shared documents across the organization
-        pinecone_filter["allowed_roles"] = {"$in": [user_role or "employee"]}
-
-    # For admin, still keep the user_id filter if explicitly provided
-    # (e.g., filtering by owner) but not for non-admin (role filter suffices)
-    if user_role == "admin" and user_id:
-        pinecone_filter["user_id"] = user_id
+        # Employee sees only their own documents
+        if user_id:
+            pinecone_filter["user_id"] = user_id
 
     if document_id:
         pinecone_filter["document_id"] = document_id

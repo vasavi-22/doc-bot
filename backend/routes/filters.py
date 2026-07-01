@@ -24,14 +24,14 @@ def _get_role_visible_documents(user_role, user_id):
                 FROM documents ORDER BY upload_time DESC
             """)
         else:
-            # Employee sees their own documents + documents where their role is allowed
+            # Employee sees only their own documents
             cursor.execute("""
                 SELECT document_id, user_id, filename, original_filename, upload_time,
                        chunks, owner, category, tags, total_pages, allowed_roles
                 FROM documents
-                WHERE user_id = ? OR allowed_roles LIKE ?
+                WHERE user_id = ?
                 ORDER BY upload_time DESC
-            """, (user_id, f'%{user_role}%'))
+            """, (user_id,))
         rows = cursor.fetchall()
         conn.close()
         return rows

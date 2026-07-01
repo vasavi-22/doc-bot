@@ -39,7 +39,8 @@ def decode_jwt(token):
 def register_user(name, email, password):
     """Register a new user. Returns (success, result_dict).
 
-    New users are created with the default 'employee' role.
+    The first user to ever register automatically becomes 'admin'.
+    All subsequent users are created with the default 'employee' role.
     """
     # Validate inputs
     if not name or not name.strip():
@@ -56,12 +57,16 @@ def register_user(name, email, password):
     if existing:
         return False, {"error": "Email already registered"}
 
-    # Create user with default 'employee' role
+    # ── Phase 8: RBAC — First user becomes admin ──
+    from database import count_users
+    user_count = count_users()
+    role = "admin" if user_count == 0 else "employee"
+
     user_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
     password_hash = hash_password(password)
 
-    create_user(user_id, name.strip(), email.strip().lower(), password_hash, now, role="employee")
+    create_user(user_id, name.strip(), email.strip().lower(), password_hash, now, role=role)
 
     token = create_jwt(user_id)
 
@@ -71,7 +76,7 @@ def register_user(name, email, password):
             "id": user_id,
             "name": name.strip(),
             "email": email.strip().lower(),
-            "role": "employee"
+            "role": role
         }
     }
 
