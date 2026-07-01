@@ -107,6 +107,53 @@ def init_db():
         )
     """)
 
+        # ── Phase 9: Evaluation tables ──
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS evaluation_runs (
+            id TEXT PRIMARY KEY,
+            run_date TEXT NOT NULL,
+            retriever_version TEXT DEFAULT 'hybrid',
+            embedding_model TEXT DEFAULT 'all-MiniLM-L6-v2',
+            reranker TEXT DEFAULT 'BAAI/bge-reranker-base',
+            overall_recall_5 REAL DEFAULT 0,
+            overall_precision_5 REAL DEFAULT 0,
+            overall_mrr REAL DEFAULT 0,
+            overall_hit_rate REAL DEFAULT 0,
+            overall_faithfulness REAL DEFAULT 0,
+            overall_relevance REAL DEFAULT 0,
+            overall_groundedness REAL DEFAULT 0,
+            overall_answer_similarity REAL DEFAULT 0,
+            avg_latency_seconds REAL DEFAULT 0,
+            num_questions INTEGER DEFAULT 0,
+            notes TEXT DEFAULT ''
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS evaluation_results (
+            id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL,
+            question_id TEXT NOT NULL,
+            question TEXT NOT NULL,
+            expected_documents TEXT NOT NULL,
+            category TEXT DEFAULT '',
+            retrieval_recall_5 REAL DEFAULT 0,
+            retrieval_precision_5 REAL DEFAULT 0,
+            retrieval_mrr REAL DEFAULT 0,
+            retrieval_hit_rate REAL DEFAULT 0,
+            faithfulness REAL DEFAULT 0,
+            relevance REAL DEFAULT 0,
+            groundedness REAL DEFAULT 0,
+            answer_similarity REAL DEFAULT 0,
+            answer TEXT DEFAULT '',
+            expected_answer TEXT DEFAULT '',
+            latency_seconds REAL DEFAULT 0,
+            retrieved_docs TEXT DEFAULT '',
+            error TEXT DEFAULT '',
+            FOREIGN KEY (run_id) REFERENCES evaluation_runs(id)
+        )
+    """)
+
     conn.commit()
     conn.close()
 
@@ -581,6 +628,94 @@ def get_recent_chats(user_id, limit=4):
     } for r in rows]
 
 
+
+
+# ── Phase 9: Evaluation helpers ──
+
+
+def get_eval_runs(limit=20):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT * FROM evaluation_runs ORDER BY run_date DESC LIMIT ?",
+        (limit,)
+    )
+    columns = [desc[0] for desc in cursor.description]
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(zip(columns, row)) for row in rows]
+
+
+def get_eval_run(run_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM evaluation_runs WHERE id = ?", (run_id,))
+    columns = [desc[0] for desc in cursor.description]
+    run_row = cursor.fetchone()
+    if not run_row:
+        conn.close()
+        return None
+    run_data = dict(zip(columns, run_row))
+    cursor.execute(
+        "SELECT * FROM evaluation_results WHERE run_id = ? ORDER BY question_id",
+        (run_id,)
+    )
+    result_cols = [desc[0] for desc in cursor.description]
+    results = [dict(zip(result_cols, row)) for row in cursor.fetchall()]
+    conn.close()
+    run_data["results"] = results
+    return run_data
+
+
+def save_eval_run(run_id, summary, results):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO evaluation_runs
+        (id, run_date, retriever_version, embedding_model, reranker,
+         overall_recall_5, overall_precision_5, overall_mrr, overall_hit_rate,
+         overall_faithfulness, overall_relevance, overall_groundedness,
+         overall_answer_similarity, avg_latency_seconds, num_questions, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        run_id, summary["run_date"],
+        summary.get("retriever_version", "hybrid"),
+        summary.get("embedding_model", "all-MiniLM-L6-v2"),
+        summary.get("reranker", "BAAI/bge-reranker-base"),
+        summary.get("overall_recall_5", 0),
+        summary.get("overall_precision_5", 0),
+        summary.get("overall_mrr", 0),
+        summary.get("overall_hit_rate", 0),
+        summary.get("overall_faithfulness", 0),
+        summary.get("overall_relevance", 0),
+        summary.get("overall_groundedness", 0),
+        summary.get("overall_answer_similarity", 0),
+        summary.get("avg_latency_seconds", 0),
+        summary.get("num_questions", 0),
+        summary.get("notes", "")
+    ))
+    for r in results:
+        cursor.execute("""
+            INSERT INTO evaluation_results
+            (id, run_id, question_id, question, expected_documents, category,
+             retrieval_recall_5, retrieval_precision_5, retrieval_mrr, retrieval_hit_rate,
+             faithfulness, relevance, groundedness, answer_similarity,
+             answer, expected_answer, latency_seconds, retrieved_docs, error)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            r["id"], run_id,
+            r["question_id"], r["question"], r["expected_documents"],
+            r.get("category", ""),
+            r.get("retrieval_recall_5", 0), r.get("retrieval_precision_5", 0),
+            r.get("retrieval_mrr", 0), r.get("retrieval_hit_rate", 0),
+            r.get("faithfulness", 0), r.get("relevance", 0),
+            r.get("groundedness", 0), r.get("answer_similarity", 0),
+            r.get("answer", ""), r.get("expected_answer", ""),
+            r.get("latency_seconds", 0), r.get("retrieved_docs", ""),
+            r.get("error", "")
+        ))
+    conn.commit()
+    conn.close()
 if __name__ == "__main__":
     init_db()
     print("Database initialized successfully!")

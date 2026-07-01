@@ -1,4 +1,4 @@
-import { Home, FileText, MessageCircle, Users, LogOut, Shield } from "lucide-react";
+import { Home, FileText, MessageCircle, Users, LogOut, Shield, BarChart3 } from "lucide-react";
 import { useAuth } from "../store/AuthContext";
 
 const baseNavItems = [
@@ -9,6 +9,7 @@ const baseNavItems = [
 
 const adminNavItems = [
   { id: "users", label: "Users", icon: Users },
+  { id: "evaluation", label: "Evaluation", icon: BarChart3 },
 ];
 
 export default function Sidebar({ activeTab, onTabChange }) {

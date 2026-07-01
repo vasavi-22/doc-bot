@@ -1,0 +1,92 @@
+[
+  {
+    "id": "q_001",
+    "question": "What is the leave policy regarding sick leave?",
+    "expected_answer": "Employees are entitled to 12 days of sick leave per year. Sick leave can be carried forward to the next year up to a maximum of 6 days.",
+    "expected_documents": ["employee_handbook.pdf"],
+    "expected_chunk_ids": [],
+    "category": "HR",
+    "tags": ["leave", "sick"]
+  },
+  {
+    "id": "q_002",
+    "question": "How many vacation days do employees receive annually?",
+    "expected_answer": "Employees receive 20 paid vacation days per year. After 5 years of service, this increases to 25 days per year.",
+    "expected_documents": ["hr_policy.pdf"],
+    "expected_chunk_ids": [],
+    "category": "HR",
+    "tags": ["leave", "vacation"]
+  },
+  {
+    "id": "q_003",
+    "question": "What is the process for submitting a expense report?",
+    "expected_answer": "Expense reports must be submitted within 30 days of the expense being incurred. All reports require original receipts for amounts over $25. Approval is required from the department manager for expenses over $500.",
+    "expected_documents": ["finance_policy.pdf"],
+    "expected_chunk_ids": [],
+    "category": "Finance",
+    "tags": ["expense", "reporting"]
+  },
+  {
+    "id": "q_004",
+    "question": "What is the company's policy on remote work?",
+    "expected_answer": "Employees may work remotely up to 3 days per week with manager approval. Remote work arrangements must be reviewed quarterly. The company provides a stipend of $50 per month for home internet costs.",
+    "expected_documents": ["employee_handbook.pdf"],
+    "expected_chunk_ids": [],
+    "category": "HR",
+    "tags": ["remote", "work-from-home"]
+  },
+  {
+    "id": "q_005",
+    "question": "What are the guidelines for data security?",
+    "expected_answer": "All employees must use multi-factor authentication. Company data must not be stored on personal devices. VPN is required when accessing company resources from outside the office. Security incidents must be reported within 1 hour to the IT department.",
+    "expected_documents": ["security_policy.pdf", "it_guidelines.pdf"],
+    "expected_chunk_ids": [],
+    "category": "Legal",
+    "tags": ["security", "data"]
+  },
+  {
+    "id": "q_006",
+    "question": "What is the maternity leave policy?",
+    "expected_answer": "Employees are eligible for 16 weeks of paid maternity leave. This requires at least 12 months of continuous service. Parental leave can be taken flexibly within the first 12 months of the child's birth.",
+    "expected_documents": ["hr_policy.pdf"],
+    "expected_chunk_ids": [],
+    "category": "HR",
+    "tags": ["leave", "maternity", "parental"]
+  },
+  {
+    "id": "q_007",
+    "question": "How does the 401k matching program work?",
+    "expected_answer": "The company matches 100% of employee contributions up to 4% of salary. Employees are automatically enrolled at 3% contribution after 90 days of employment. Vesting occurs over a 3-year graded schedule.",
+    "expected_documents": ["finance_policy.pdf"],
+    "expected_chunk_ids": [],
+    "category": "Finance",
+    "tags": ["benefits", "retirement", "401k"]
+  },
+  {
+    "id": "q_008",
+    "question": "What is the code of conduct regarding conflicts of interest?",
+    "expected_answer": "Employees must disclose any actual or potential conflicts of interest in writing to their manager and HR. Gifts from vendors or clients valued over $50 must be reported. Outside employment requires prior written approval from the company.",
+    "expected_documents": ["employee_handbook.pdf", "legal_compliance.pdf"],
+    "expected_chunk_ids": [],
+    "category": "Legal",
+    "tags": ["conduct", "conflict-of-interest"]
+  },
+  {
+    "id": "q_009",
+    "question": "What are the technical requirements for software development?",
+    "expected_answer": "All code must be peer-reviewed before deployment. Unit test coverage must be at least 80%. The company uses Git for version control and follows the feature branch workflow. Security scanning is required for all production deployments.",
+    "expected_documents": ["engineering_standards.pdf"],
+    "expected_chunk_ids": [],
+    "category": "Engineering",
+    "tags": ["development", "code-review"]
+  },
+  {
+    "id": "q_010",
+    "question": "What is the health insurance coverage?",
+    "expected_answer": "The company offers two health insurance plans: a PPO with a $500 deductible and an HMO with no deductible. Dental and vision coverage are included. Coverage begins on the first day of the month following 30 days of employment.",
+    "expected_documents": ["hr_policy.pdf", "benefits_overview.pdf"],
+    "expected_chunk_ids": [],
+    "category": "HR",
+    "tags": ["benefits", "health", "insurance"]
+  }
+]

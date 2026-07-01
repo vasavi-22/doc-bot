@@ -9,6 +9,7 @@ from routes.auth import auth_bp
 from routes.conversations import conversations_bp
 from routes.filters import filters_bp
 from routes.admin import admin_bp
+from evaluation.routes import evaluation_bp
 from config import Config
 Config.validate()
 
@@ -45,6 +46,7 @@ app.register_blueprint(auth_bp)
 app.register_blueprint(conversations_bp)
 app.register_blueprint(filters_bp)
 app.register_blueprint(admin_bp)
+app.register_blueprint(evaluation_bp)
 
 @app.route("/health", methods=["GET"])
 def health():

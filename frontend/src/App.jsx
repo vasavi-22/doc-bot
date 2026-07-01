@@ -6,6 +6,7 @@ import Dashboard from "./components/Dashboard";
 import Documents from "./components/Documents";
 import ChatPage from "./components/ChatPage";
 import Users from "./components/Users";
+import EvaluationDashboard from "./components/EvaluationDashboard";
 import LoginPage from "./components/LoginPage";
 import RegisterPage from "./components/RegisterPage";
 
@@ -57,6 +58,11 @@ function AppContent() {
         {isAdmin && (
           <div className={activeTab === "users" ? "h-full" : "hidden h-full"}>
             <Users />
+          </div>
+        )}
+        {isAdmin && (
+          <div className={activeTab === "evaluation" ? "h-full" : "hidden h-full"}>
+            <EvaluationDashboard />
           </div>
         )}
       </main>
