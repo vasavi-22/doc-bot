@@ -1,4 +1,5 @@
 import json
+import time
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.messages import HumanMessage, AIMessage
 
@@ -6,6 +7,7 @@ from services.llm import get_groq_llm, get_groq_llm_non_streaming
 from services.prompts import CONDENSE_QUESTION_PROMPT, QA_PROMPT, GENERAL_QA_PROMPT
 from services.rag_pipeline import _retrieve_context, _filter_sources
 from services.conversation_service import build_langchain_history
+from services.langfuse_tracing import safe_span, safe_generation, end_span
 from config import Config
 from utils.logger import logger
 
@@ -50,7 +52,8 @@ def query_conversational_rag(
     filter_document_ids=None,
     filter_categories=None,
     filter_tags=None,
-    user_role=None
+    user_role=None,
+    langfuse_trace=None
 ):
     """
     Full conversational RAG query.
@@ -63,6 +66,7 @@ def query_conversational_rag(
     5. Generate answer with history + context
     6. Filter sources
     """
+    gen_span = None
     try:
         if not Config.GROQ_API_KEY:
             return {"error": "GROQ_API_KEY not set"}
@@ -77,6 +81,14 @@ def query_conversational_rag(
         standalone_question = _rewrite_question(question, chat_history_lc)
 
         # Step 3: Retrieve context using the standalone question
+        # ── LangFuse: Retrieval span ──
+        ret_span = safe_span(langfuse_trace, "retrieval",
+            input={"question": standalone_question, "filters": {
+                "document_ids": filter_document_ids,
+                "categories": filter_categories,
+                "tags": filter_tags
+            }}
+        )
         context, unique_sources = _retrieve_context(
             standalone_question,
             document_id=document_id,
@@ -87,6 +99,7 @@ def query_conversational_rag(
             filter_categories=filter_categories,
             filter_tags=filter_tags
         )
+        end_span(ret_span)
 
         # Handle empty results when filters are active
         if context == "__NO_RESULTS__":
@@ -99,6 +112,17 @@ def query_conversational_rag(
 
         # Step 4: Generate answer with history + context
         llm = get_groq_llm_non_streaming(temperature=0.3 if context.strip() else 0.5)
+
+        # ── LangFuse: Generation span ──
+        gen_span = safe_generation(langfuse_trace, "llm-call",
+            model="llama-3.3-70b-versatile",
+            model_parameters={"temperature": 0.3 if context.strip() else 0.5, "max_tokens": 1024},
+            input={
+                "question": standalone_question,
+                "context_length": len(context),
+                "has_history": bool(chat_history_lc)
+            }
+        )
 
         if context.strip():
             prompt = QA_PROMPT
@@ -121,12 +145,21 @@ def query_conversational_rag(
         # Step 5: Filter sources
         sources_used = _filter_sources(answer, unique_sources) if context.strip() else []
 
+        # ── LangFuse: Update generation with output, THEN end ──
+        if gen_span is not None:
+            try:
+                gen_span.update(output={"answer": answer[:500], "sources": sources_used})
+            except:
+                pass
+        end_span(gen_span)
+
         return {
             "answer": answer,
             "sources": sources_used
         }
 
     except Exception as e:
+        end_span(gen_span)
         logger.error(f"Conversational RAG error: {str(e)}")
         return {"error": f"Error: {str(e)}"}
 
@@ -143,7 +176,8 @@ def query_conversational_rag_stream(
     filter_document_ids=None,
     filter_categories=None,
     filter_tags=None,
-    user_role=None
+    user_role=None,
+    langfuse_trace=None
 ):
     """
     Streaming conversational RAG — generator that yields SSE-formatted strings.
@@ -156,6 +190,7 @@ def query_conversational_rag_stream(
     5. Stream answer from Groq
     6. Send sources at end
     """
+    gen_span = None
     if not Config.GROQ_API_KEY:
         yield f"data: {json.dumps({'type': 'error', 'message': 'GROQ_API_KEY not set'})}\n\n"
         return
@@ -171,6 +206,14 @@ def query_conversational_rag_stream(
         standalone_question = _rewrite_question(question, chat_history_lc)
 
         # Step 3: Retrieve context
+        # ── LangFuse: Retrieval span ──
+        ret_span = safe_span(langfuse_trace, "retrieval",
+            input={"question": standalone_question, "filters": {
+                "document_ids": filter_document_ids,
+                "categories": filter_categories,
+                "tags": filter_tags
+            }}
+        )
         context, unique_sources = _retrieve_context(
             standalone_question,
             document_id=document_id,
@@ -182,6 +225,7 @@ def query_conversational_rag_stream(
             filter_tags=filter_tags,
             user_role=user_role
         )
+        end_span(ret_span)
 
         # Handle empty results when filters are active
         if context == "__NO_RESULTS__":
@@ -190,6 +234,17 @@ def query_conversational_rag_stream(
 
         # Step 4: Stream answer from Groq via LangChain
         llm = get_groq_llm(temperature=0.3 if context.strip() else 0.5)
+
+        # ── LangFuse: Generation span ──
+        gen_span = safe_generation(langfuse_trace, "llm-call",
+            model="llama-3.3-70b-versatile",
+            model_parameters={"temperature": 0.3 if context.strip() else 0.5, "max_tokens": 1024},
+            input={
+                "question": standalone_question,
+                "context_length": len(context),
+                "has_history": bool(chat_history_lc)
+            }
+        )
 
         if context.strip():
             prompt = QA_PROMPT
@@ -215,8 +270,18 @@ def query_conversational_rag_stream(
 
         # Step 5: Filter and send sources
         sources_used = _filter_sources(full_answer, unique_sources) if context.strip() else []
+
+        # ── LangFuse: Update generation with output, THEN end ──
+        if gen_span is not None:
+            try:
+                gen_span.update(output={"answer": full_answer[:500], "sources": sources_used})
+            except:
+                pass
+        end_span(gen_span)
+
         yield f"data: {json.dumps({'type': 'sources', 'sources': sources_used})}\n\n"
 
     except Exception as e:
+        end_span(gen_span)
         logger.error(f"Conversational RAG stream error: {str(e)}")
         yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"

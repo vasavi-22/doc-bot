@@ -1,15 +1,26 @@
 import json
 import requests
+import time
 # from services.vector_store import query_vectors
 from services.hybrid_retriever import hybrid_search
 from services.reranker import rerank
 from config import Config
 from utils.logger import logger
+from services.langfuse_service import get_langfuse
+from services.langfuse_tracing import safe_trace, safe_span, safe_generation, end_span, end_trace
 # from services.model_loader import get_model
 
 GROQ_API_KEY = Config.GROQ_API_KEY
 TOP_K_RESULTS = Config.TOP_K_RESULTS
 RETRIEVAL_TOP_K = Config.RETRIEVAL_TOP_K
+
+_lf_client = None
+
+def _get_lf():
+    global _lf_client
+    if _lf_client is None:
+        _lf_client = get_langfuse()
+    return _lf_client
 
 
 def _retrieve_context(question, document_id=None, category=None, owner=None, user_id=None,
@@ -154,11 +165,22 @@ def _filter_sources(answer, unique_sources):
 
 def query_rag(question, document_id=None, category=None, owner=None, user_id=None,
               filter_document_ids=None, filter_categories=None, filter_tags=None,
-              user_role=None):
+              user_role=None, langfuse_trace=None):
     """Non-streaming RAG query — returns full answer dict."""
+    ret_span = llm_span = None
+    lf = _get_lf()
     try:
         if not GROQ_API_KEY:
             return {"error": "GROQ_API_KEY not set"}
+
+        # ── LangFuse: Retrieval span ──
+        ret_span = safe_span(langfuse_trace or lf, "retrieval",
+            input={"question": question, "filters": {
+                "document_ids": filter_document_ids,
+                "categories": filter_categories,
+                "tags": filter_tags
+            }}
+        )
 
         context, unique_sources = _retrieve_context(
             question, document_id, category, owner, user_id,
@@ -168,10 +190,27 @@ def query_rag(question, document_id=None, category=None, owner=None, user_id=Non
             user_role=user_role
         )
 
+        end_span(ret_span)
+        if ret_span is not None and not isinstance(ret_span, type(None)):
+            try: ret_span.update(output={"sources": unique_sources, "context_length": len(context)})
+            except: pass
+
         # Handle empty results when filters are active
         if context == "__NO_RESULTS__":
             return {"answer": "", "sources": [], "no_results": True}
         system_prompt, user_content, temperature = _build_prompt(question, context)
+
+        # ── LangFuse: LLM generation span ──
+        llm_span = safe_generation(langfuse_trace or lf, "llm-call",
+            model="llama-3.3-70b-versatile",
+            model_parameters={"temperature": temperature, "max_tokens": 1024},
+            input={
+                "system_prompt": system_prompt[:500],
+                "user_message": user_content[:500],
+                "question": question
+            }
+        )
+        llm_start = time.time()
 
         response = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
@@ -191,14 +230,33 @@ def query_rag(question, document_id=None, category=None, owner=None, user_id=Non
             timeout=30
         )
 
+        llm_latency = round(time.time() - llm_start, 3)
         data = response.json()
 
         if "choices" in data:
             answer = data["choices"][0]["message"]["content"]
+            usage = data.get("usage", {})
             sources_used = _filter_sources(answer, unique_sources)
+
+            # ── LangFuse: update generation with output + usage ──
+            end_span(llm_span)
+            if llm_span is not None:
+                try:
+                    llm_span.update(
+                        output={"answer": answer[:500], "sources": sources_used},
+                        usage={
+                            "input": usage.get("prompt_tokens", 0),
+                            "output": usage.get("completion_tokens", 0),
+                            "unit": "TOKENS"
+                        }
+                    )
+                except:
+                    pass
+
             return {
                 "answer": answer,
-                "sources": sources_used
+                "sources": sources_used,
+                "usage": usage
             }
         elif "error" in data:
             return {"error": f"Groq API Error: {data['error']['message']}"}
@@ -206,12 +264,14 @@ def query_rag(question, document_id=None, category=None, owner=None, user_id=Non
             return {"error": f"Unexpected response: {data}"}
 
     except Exception as e:
+        end_span(ret_span)
+        end_span(llm_span)
         return {"error": f"Error: {str(e)}"}
 
 
 def query_rag_stream(question, document_id=None, category=None, owner=None, user_id=None,
                      filter_document_ids=None, filter_categories=None, filter_tags=None,
-                     user_role=None):
+                     user_role=None, langfuse_trace=None):
     """
     Streaming RAG query — generator that yields SSE-formatted strings.
 
@@ -221,11 +281,23 @@ def query_rag_stream(question, document_id=None, category=None, owner=None, user
             data: {"type": "sources", "sources": [...]}\n\n
             data: {"type": "error", "message": "..."}\n\n
     """
+    lf = _get_lf()
+    ret_span = llm_span = None
+
     if not GROQ_API_KEY:
         yield f"data: {json.dumps({'type': 'error', 'message': 'GROQ_API_KEY not set'})}\n\n"
         return
 
     try:
+        # ── LangFuse: Retrieval span ──
+        ret_span = safe_span(langfuse_trace or lf, "retrieval",
+            input={"question": question, "filters": {
+                "document_ids": filter_document_ids,
+                "categories": filter_categories,
+                "tags": filter_tags
+            }}
+        )
+
         context, unique_sources = _retrieve_context(
             question, document_id, category, owner, user_id,
             filter_document_ids=filter_document_ids,
@@ -234,12 +306,28 @@ def query_rag_stream(question, document_id=None, category=None, owner=None, user
             user_role=user_role
         )
 
+        end_span(ret_span)
+        if ret_span is not None and hasattr(ret_span, 'update'):
+            try: ret_span.update(output={"sources": unique_sources, "context_length": len(context)})
+            except: pass
+
         # Handle empty results when filters are active
         if context == "__NO_RESULTS__":
             yield f"data: {json.dumps({'type': 'no_results', 'filters_active': True})}\n\n"
             return
 
         system_prompt, user_content, temperature = _build_prompt(question, context)
+
+        # ── LangFuse: LLM generation span ──
+        llm_span = safe_generation(langfuse_trace or lf, "llm-call",
+            model="llama-3.3-70b-versatile",
+            model_parameters={"temperature": temperature, "max_tokens": 1024},
+            input={
+                "system_prompt": system_prompt[:500],
+                "user_message": user_content[:500],
+                "question": question
+            }
+        )
 
         # Make streaming request to Groq
         response = requests.post(
@@ -270,6 +358,7 @@ def query_rag_stream(question, document_id=None, category=None, owner=None, user
             except Exception:
                 error_body = f"HTTP {response.status_code}"
             logger.error(f"Groq streaming error: {error_body}")
+            end_span(llm_span)
             yield f"data: {json.dumps({'type': 'error', 'message': error_body})}\n\n"
             return
 
@@ -304,8 +393,22 @@ def query_rag_stream(question, document_id=None, category=None, owner=None, user
 
         # After streaming completes, send sources
         sources_used = _filter_sources(full_answer, unique_sources)
+
+        # ── LangFuse: Update generation with output ──
+        end_span(llm_span)
+        if llm_span is not None and hasattr(llm_span, 'update'):
+            try:
+                llm_span.update(
+                    output={"answer": full_answer[:500], "sources": sources_used},
+                    usage={"input": 0, "output": 0, "unit": "TOKENS"}
+                )
+            except:
+                pass
+
         yield f"data: {json.dumps({'type': 'sources', 'sources': sources_used})}\n\n"
 
     except Exception as e:
+        end_span(ret_span)
+        end_span(llm_span)
         logger.error(f"Streaming error: {str(e)}")
         yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"

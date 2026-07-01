@@ -1,3 +1,6 @@
+import json
+import re
+import uuid
 from flask import Blueprint, request, jsonify, Response, stream_with_context, g
 from services.intent_classifier import classify_intent, INTENT_GENERAL_CONVERSATION
 from services.conversation_service import add_user_message, add_assistant_message, new_chat, get_chat
@@ -5,8 +8,8 @@ from services.conversational_rag import query_conversational_rag, query_conversa
 from utils.logger import logger
 from middleware.auth_middleware import jwt_required
 from database import update_chat_title
-import json
-import re
+from services.langfuse_service import get_langfuse
+from services.langfuse_tracing import safe_trace, safe_generation, end_trace
 
 chat_bp = Blueprint("chat", __name__)
 
@@ -29,6 +32,8 @@ def _auto_title_chat(chat_id, first_message):
 @jwt_required
 def chat():
     """Non-streaming chat endpoint with conversational memory."""
+    lf = get_langfuse()
+    trace = None
     try:
         data = request.get_json()
 
@@ -50,6 +55,23 @@ def chat():
         if not chat_id:
             chat = new_chat(g.user_id)
             chat_id = chat["id"]
+
+        # ── Phase 10: LangFuse — Create one trace per request ──
+        trace = safe_trace(lf, "chat_request",
+            user_id=g.user_id,
+            session_id=chat_id,
+            metadata={
+                "user_id": g.user_id,
+                "role": g.user_role,
+                "conversation_id": chat_id,
+                "question_length": len(question),
+                "filters": {
+                    "document_ids": filter_document_ids,
+                    "categories": filter_categories,
+                    "tags": filter_tags
+                }
+            }
+        )
 
         # Auto-title the chat on first message
         _auto_title_chat(chat_id, question)
@@ -64,13 +86,14 @@ def chat():
         # Step 2: Handle general conversation
         if intent == INTENT_GENERAL_CONVERSATION:
             add_assistant_message(chat_id, conversational_response, [])
+            end_trace(trace)
             return jsonify({
                 "answer": conversational_response,
                 "sources": [],
                 "chat_id": chat_id
             })
 
-        # Step 3: Conversational RAG query
+        # Step 3: Conversational RAG query (trace passed for child spans)
         answer = query_conversational_rag(
             question=question,
             chat_id=chat_id,
@@ -81,16 +104,19 @@ def chat():
             user_role=g.user_role,
             filter_document_ids=filter_document_ids,
             filter_categories=filter_categories,
-            filter_tags=filter_tags
+            filter_tags=filter_tags,
+            langfuse_trace=trace
         )
 
         if "error" not in answer:
             add_assistant_message(chat_id, answer.get("answer", ""), answer.get("sources", []))
             answer["chat_id"] = chat_id
 
+        end_trace(trace)
         return jsonify(answer)
 
     except Exception as e:
+        end_trace(trace)
         logger.error(f"Chat error: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
@@ -99,6 +125,8 @@ def chat():
 @jwt_required
 def chat_stream():
     """SSE streaming endpoint with conversational memory."""
+    lf = get_langfuse()
+    trace = None
     try:
         data = request.get_json()
 
@@ -120,6 +148,24 @@ def chat_stream():
         if not chat_id:
             chat = new_chat(g.user_id)
             chat_id = chat["id"]
+
+        # ── Phase 10: LangFuse — Create one trace per request ──
+        trace = safe_trace(lf, "chat_stream",
+            user_id=g.user_id,
+            session_id=chat_id,
+            metadata={
+                "user_id": g.user_id,
+                "role": g.user_role,
+                "conversation_id": chat_id,
+                "question_length": len(question),
+                "filters": {
+                    "document_ids": filter_document_ids,
+                    "categories": filter_categories,
+                    "tags": filter_tags
+                },
+                "streaming": True
+            }
+        )
 
         # Auto-title the chat on first message (BEFORE saving user message)
         _auto_title_chat(chat_id, question)
@@ -143,6 +189,7 @@ def chat_stream():
                 yield f"data: {json.dumps({'type': 'chat_id', 'chat_id': chat_id})}\n\n"
                 if full_response:
                     add_assistant_message(chat_id, full_response, [])
+                end_trace(trace)
             else:
                 full_answer = ""
                 final_sources = []
@@ -158,7 +205,8 @@ def chat_stream():
                     user_role=g.user_role,
                     filter_document_ids=filter_document_ids,
                     filter_categories=filter_categories,
-                    filter_tags=filter_tags
+                    filter_tags=filter_tags,
+                    langfuse_trace=trace
                 ):
                     try:
                         data_str = event[6:] if event.startswith("data: ") else event
@@ -174,13 +222,14 @@ def chat_stream():
                     yield event
 
                 if no_results:
-                    # Don't save assistant message for empty results
                     pass
                 elif full_answer:
                     add_assistant_message(chat_id, full_answer, final_sources)
 
                 if not no_results:
                     yield f"data: {json.dumps({'type': 'chat_id', 'chat_id': chat_id})}\n\n"
+
+                end_trace(trace)
 
         return Response(
             stream_with_context(generate()),
@@ -193,5 +242,6 @@ def chat_stream():
         )
 
     except Exception as e:
+        end_trace(trace)
         logger.error(f"Stream endpoint error: {str(e)}")
         return jsonify({"error": str(e)}), 500
