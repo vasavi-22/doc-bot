@@ -1,23 +1,15 @@
 """
-Phase 11 — Graph Nodes
+Phase 12 — Multi-Agent Node Implementations
 
-Each node wraps existing business logic from services/ into a function
+Each node wraps a specialized agent from agents/ into a function
 that reads from the shared state and returns only the fields it updates.
 
-Nodes are designed to be:
-- Thin: delegate to existing service functions
-- Testable: pure functions of state → dict
-- Observable: each node can be individually traced with LangFuse
-"""
-
-"""
-Phase 11 — LangGraph Node Implementations
-
-Each node wraps existing business logic from services/ into a function
-that reads from the shared state and returns only the fields it updates.
+Architecture:
+  Query Agent → Retrieval Agent → Metadata Filter → Reranker Agent
+  → Verification Agent → Memory Manager → Answer Agent → Citation Agent
 
 Uses lazy imports to avoid triggering service-level side effects
-(e.g., Pinecone client initialization) at module load time.
+at module load time.
 """
 
 import requests
@@ -32,22 +24,57 @@ TOP_K_RESULTS = Config.TOP_K_RESULTS
 RETRIEVAL_TOP_K = Config.RETRIEVAL_TOP_K
 
 
-# ─── Node: Question Re-writer ────────────────────────────────────────────────
+# ─── Agent: Query Understanding Agent ─────────────────────────────────────---
 
-def rewrite_question(state: RAGState) -> dict:
-    """Node: Rewrite the question using chat history for context.
+def query_agent(state: RAGState) -> dict:
+    """Agent: Understand what the user is asking before retrieval.
 
-    If there's no chat history, the original question is used as-is.
-    This preserves conversational context (Phase 5).
+    Determines intent (summary/comparison/follow_up/factual),
+    extracts keywords, and detects follow-up references.
+    """
+    from agents.query_agent import analyze_query
+
+    trace = state.get("langfuse_trace")
+    span = _make_span(trace, "query_agent", {
+        "question": state["question"][:100],
+        "has_history": bool(state.get("chat_history")),
+    })
+
+    question = state["question"]
+    has_history = bool(state.get("chat_history"))
+
+    analysis = analyze_query(question, has_chat_history=has_history)
+
+    _end_span(span)
+    if span is not None:
+        try:
+            span.update(output=analysis)
+        except Exception:
+            pass
+
+    return {
+        "intent": analysis.get("intent", "factual"),
+        "query_keywords": analysis.get("keywords", question),
+        "needs_history": analysis.get("needs_history", has_history),
+        "is_follow_up": analysis.get("is_follow_up", False),
+    }
+
+
+# ─── Agent: Question Rewriter (uses history when needed) ─────────────────────
+
+def question_rewriter(state: RAGState) -> dict:
+    """Agent: Rewrite the question using chat history for context.
+
+    Only runs when needs_history=True (set by the Query Agent).
     """
     from services.llm import get_groq_llm_non_streaming
     from services.prompts import CONDENSE_QUESTION_PROMPT
 
     chat_history = state.get("chat_history", [])
     question = state["question"]
+    needs_history = state.get("needs_history", False)
 
-    if not chat_history:
-        logger.info("No chat history — using original question as-is")
+    if not chat_history or not needs_history:
         return {"standalone_question": question}
 
     try:
@@ -61,27 +88,29 @@ def rewrite_question(state: RAGState) -> dict:
         logger.info(f"Question rewritten: '{question[:60]}' -> '{rewritten[:60]}'")
         return {"standalone_question": rewritten}
     except Exception as e:
-        logger.error(f"Question rewriting failed: {e}. Using original question.")
+        logger.error(f"Question rewriting failed: {e}")
         return {"standalone_question": question}
 
 
-# ─── Node: Retriever ─────────────────────────────────────────────────────────
+# ─── Agent: Retrieval Agent ──────────────────────────────────────────────────
 
-def retriever(state: RAGState) -> dict:
-    """Node: Retrieve candidate chunks via hybrid search.
+def retrieval_agent(state: RAGState) -> dict:
+    """Agent: Retrieve candidate documents from Pinecone via hybrid search.
 
+    Wraps the existing hybrid_search service. No LLM required.
     Uses the standalone question (already rewritten for history).
     Applies metadata filters (Phase 6) and RBAC (Phase 8).
-    Instruments with LangFuse at the node level (Phase 10).
     """
-    from services.hybrid_retriever import hybrid_search
+    from agents.retrieval_agent import retrieve_documents
 
     trace = state.get("langfuse_trace")
+    question = state["standalone_question"]
+    search_attempts = state["search_attempts"] + 1
 
-    # LangFuse: Retrieval span (node-level tracing)
-    ret_span = _make_span(trace, "retrieval", {
-        "question": state["standalone_question"],
-        "attempt": state["search_attempts"] + 1,
+    span = _make_span(trace, "retrieval_agent", {
+        "question": question[:100],
+        "attempt": search_attempts,
+        "intent": state.get("intent"),
         "filters": {
             "document_ids": state.get("filter_document_ids"),
             "categories": state.get("filter_categories"),
@@ -90,14 +119,8 @@ def retriever(state: RAGState) -> dict:
     })
 
     try:
-        question = state["standalone_question"]
-        search_attempts = state["search_attempts"] + 1
-
-        logger.info(f"Search attempt {search_attempts}/{state['max_search_attempts']}: '{question[:60]}'")
-
-        matches = hybrid_search(
-            question,
-            top_k=RETRIEVAL_TOP_K,
+        result = retrieve_documents(
+            question=question,
             document_id=state.get("document_id"),
             category=state.get("category"),
             owner=state.get("owner"),
@@ -108,39 +131,38 @@ def retriever(state: RAGState) -> dict:
             user_role=state.get("user_role"),
         )
 
-        # Apply score threshold to filter low-quality candidates
-        scored_matches = [m for m in matches if m.get("score", 0) > 0.15]
-
-        logger.info(f"Retrieved {len(matches)} candidates, {len(scored_matches)} above threshold")
-
-        _end_span(ret_span)
-        if ret_span is not None and not isinstance(ret_span, type(None)):
+        _end_span(span)
+        if span is not None:
             try:
-                ret_span.update(output={
-                    "matches_count": len(matches),
-                    "scored_count": len(scored_matches),
+                span.update(output={
+                    "match_count": result.get("match_count", 0),
+                    "scored_count": result.get("scored_count", 0),
                 })
             except Exception:
                 pass
 
         return {
-            "retrieved_chunks": scored_matches,
+            "retrieved_chunks": result.get("retrieved_chunks", []),
+            "match_count": result.get("match_count", 0),
+            "scored_count": result.get("scored_count", 0),
             "search_attempts": search_attempts,
         }
     except Exception as e:
-        _end_span(ret_span)
-        logger.error(f"Retrieval error: {e}")
+        _end_span(span)
+        logger.error(f"Retrieval Agent error: {e}")
         return {
             "retrieved_chunks": [],
-            "search_attempts": state["search_attempts"] + 1,
+            "match_count": 0,
+            "scored_count": 0,
+            "search_attempts": search_attempts,
             "error": str(e),
         }
 
 
-# ─── Node: Additional Retrieval (query rewrite) ──────────────────────────────
+# ─── Agent: Additional Retrieval (query rewrite) ─────────────────────────────
 
 def retrieve_more(state: RAGState) -> dict:
-    """Node: Rewrite the search query for better results.
+    """Agent: Rewrite the search query for better results.
 
     Called when the router decides search quality is insufficient.
     Uses LLM to create a more specific / reformulated query.
@@ -151,7 +173,6 @@ def retrieve_more(state: RAGState) -> dict:
 
     try:
         llm = get_groq_llm_non_streaming(temperature=0.3)
-
         prompt = f"""\
 You are helping improve a search query for a document retrieval system.
 The original query returned poor or insufficient results.
@@ -167,51 +188,35 @@ Return ONLY the rewritten query, nothing else."""
         logger.info(f"Search query rewritten: '{original[:60]}' -> '{rewritten[:60]}'")
         return {"standalone_question": rewritten}
     except Exception as e:
-        logger.error(f"Query rewrite failed: {e}. Using original.")
+        logger.error(f"Query rewrite failed: {e}")
         return {"standalone_question": original}
 
 
-# ─── Node: Reranker ──────────────────────────────────────────────────────────
+# ─── Agent: Metadata Filter ──────────────────────────────────────────────────
 
-def reranker(state: RAGState) -> dict:
-    """Node: Rerank retrieved chunks and format context for generation.
+def metadata_filter(state: RAGState) -> dict:
+    """Agent: Apply metadata filters to retrieved chunks.
 
-    Uses the existing CrossEncoder reranker (Phase 7).
-    Handles the no-results case and deduplicates sources.
+    Independent node that filters chunks based on metadata criteria.
+    Kept separate from retrieval for easier debugging and reuse.
     """
-    from services.reranker import rerank
-
     chunks = state.get("retrieved_chunks", [])
-    question = state["standalone_question"]
     has_active_filters = bool(
         state.get("filter_document_ids") or
         state.get("filter_categories") or
         state.get("filter_tags")
     )
 
-    # LangFuse: Reranking span
-    trace = state.get("langfuse_trace")
-    rera_span = _make_span(trace, "reranking", {
-        "num_chunks": len(chunks),
-        "question": question[:100],
-    })
-
-    # No chunks → no results
     if not chunks:
-        _end_span(rera_span)
         if has_active_filters:
             return {"context": "__NO_RESULTS__", "unique_sources": [], "no_results": True}
         return {"context": "", "unique_sources": [], "no_results": False}
 
-    # Rerank with cross-encoder
-    logger.info(f"Reranking {len(chunks)} candidate chunks")
-    reranked = rerank(question, chunks, top_k=TOP_K_RESULTS)
-
-    # Build formatted context and sources
+    # Format chunks into context and sources
     context_chunks = []
     sources = []
 
-    for match in reranked:
+    for match in chunks:
         metadata = match.get("metadata", {})
         filename = metadata.get("filename", "Unknown")
         page_number = metadata.get("page_number", "N/A")
@@ -227,24 +232,17 @@ def reranker(state: RAGState) -> dict:
             source_entry["tags"] = tag_str
 
         context_chunks.append(
-            f"""
-        Document: {filename}
-        Page: {page_number}
-        Category: {category_meta}
-
-        {text}
-        """
+            f"Document: {filename}\nPage: {page_number}\nCategory: {category_meta}\n\n{text}"
         )
         sources.append(source_entry)
 
+    # Still format context but note that reranker will improve ordering
     context = "\n\n".join(context_chunks)[:2000]
 
-    # Handle active filters with no sources
     if has_active_filters and not sources:
-        _end_span(rera_span)
         return {"context": "__NO_RESULTS__", "unique_sources": [], "no_results": True}
 
-    # Deduplicate sources by (filename, page)
+    # Deduplicate sources
     seen = set()
     unique_sources = []
     for source in sources:
@@ -253,157 +251,203 @@ def reranker(state: RAGState) -> dict:
             seen.add(key)
             unique_sources.append(source)
 
-    _end_span(rera_span)
-    if rera_span is not None:
+    return {
+        "context": context,
+        "unique_sources": unique_sources,
+        "no_results": False,
+    }
+
+
+# ─── Agent: Reranker Agent ───────────────────────────────────────────────────
+
+def reranker_agent(state: RAGState) -> dict:
+    """Agent: Rerank retrieved chunks using cross-encoder, remove weak chunks.
+
+    Wraps the existing reranker service. Replaces raw ordering with
+    cross-encoder relevance scores.
+    """
+    from agents.reranker_agent import rerank_documents
+
+    trace = state.get("langfuse_trace")
+    question = state["standalone_question"]
+    chunks = state.get("retrieved_chunks", [])
+
+    span = _make_span(trace, "reranker_agent", {
+        "num_chunks": len(chunks),
+        "question": question[:100],
+    })
+
+    result = rerank_documents(question, chunks)
+
+    _end_span(span)
+    if span is not None:
         try:
-            rera_span.update(output={
-                "num_reranked": len(reranked),
-                "num_sources": len(unique_sources),
-                "context_length": len(context),
+            span.update(output={
+                "reranked_count": result.get("reranked_count", 0),
+                "highest_score": result.get("highest_score", 0),
             })
         except Exception:
             pass
 
     return {
-        "reranked_chunks": reranked,
-        "context": context,
-        "unique_sources": unique_sources,
+        "reranked_chunks": result.get("reranked_chunks", []),
+        "reranked_count": result.get("reranked_count", 0),
+        "rerank_lowest_score": result.get("lowest_score", 0),
+        "rerank_highest_score": result.get("highest_score", 0),
     }
 
 
-# ─── Node: Generator ─────────────────────────────────────────────────────────
+# ─── Agent: Verification Agent ───────────────────────────────────────────────
 
-def generator(state: RAGState) -> dict:
-    """Node: Generate answer using the LLM.
+def verification_agent(state: RAGState) -> dict:
+    """Agent: Verify that evidence is sufficient before generating.
 
-    If context is available, uses RAG-style prompting (cite sources).
-    If no context, uses general knowledge prompting.
-    On retry, includes validation feedback to improve the answer.
+    NEW in Phase 12. Checks confidence, chunk count, and score quality.
+    Can cause early termination with a safe abstain response.
     """
+    from agents.verification_agent import verify_evidence
+
+    trace = state.get("langfuse_trace")
+    question = state["standalone_question"]
+    reranked = state.get("reranked_chunks", [])
+
+    span = _make_span(trace, "verification_agent", {
+        "num_reranked": len(reranked),
+        "question": question[:100],
+    })
+
+    result = verify_evidence(question, reranked)
+
+    _end_span(span)
+    if span is not None:
+        try:
+            span.update(output=result)
+        except Exception:
+            pass
+
+    return {
+        "verified": result.get("verified", False),
+        "confidence": result.get("confidence", 0.0),
+        "verification_reason": result.get("reason", ""),
+        "abstain": result.get("abstain", True),
+    }
+
+
+# ─── Agent: Memory Manager ───────────────────────────────────────────────────
+
+def memory_manager(state: RAGState) -> dict:
+    """Agent: Prepare conversational context for the Answer Agent.
+
+    Fetches recent chat history and provides relevant context
+    without mixing memory logic into generation.
+    """
+    chat_history = state.get("chat_history", [])
+    has_history = bool(chat_history)
+
+    if not has_history:
+        return {"chat_history": []}
+
+    logger.info(f"Memory Manager: {len(chat_history)} history messages available")
+    return {"chat_history": chat_history}
+
+
+# ─── Agent: Answer Agent ─────────────────────────────────────────────────────
+
+def answer_agent(state: RAGState) -> dict:
+    """Agent: Generate the final answer from verified evidence.
+
+    Does NOT search, rerank, verify, or build citations.
+    Pure generation with clean prompts.
+    """
+    from agents.answer_agent import generate_answer
+
     trace = state.get("langfuse_trace")
     question = state["standalone_question"]
     context = state["context"]
     validation_feedback = state.get("validation_feedback", "")
     gen_attempt = state.get("generation_attempts", 0) + 1
 
-    has_context = bool(context.strip()) and context != "__NO_RESULTS__"
-
-    # Build system prompt based on context availability
-    if has_context:
-        system_prompt = """\
-You are a helpful AI assistant. Respond naturally and conversationally, like ChatGPT.
-
-Guidelines:
-- Answer the question directly. No introductions, headings, or sections.
-- If the provided context is relevant, use the information and MUST cite the exact source
-  filename (e.g., "According to Machine_Learning.pdf..."). Never use vague references
-  like "according to the provided context" or "the document says" — always name the
-  specific file.
-- If the context is NOT relevant or doesn't contain the answer, answer from your own
-  knowledge. Do NOT mention any documents, sources, or filenames.
-- For code questions, provide working examples in markdown code blocks with brief explanation.
-- Keep it concise but thorough. Never say "I couldn't find relevant information"."""
-        user_content = f"""\
-Context from uploaded documents:
-{context}
-
-Question: {question}
-
-Answer naturally. If the context above is relevant, use it and cite the EXACT source filename. If not, answer from your own knowledge — do NOT mention any documents or sources."""
-        temperature = 0.3
-    else:
-        system_prompt = """\
-You are a helpful AI assistant. Respond naturally and conversationally, like ChatGPT.
-
-Guidelines:
-- Answer the question directly and concisely. No introductions, headings, or sections.
-- For code questions, provide working examples in markdown code blocks with brief explanation.
-- Keep it natural. Use **bold** sparingly for emphasis only."""
-        user_content = question
-        temperature = 0.5
-
-    # Add validation feedback for retries
-    if validation_feedback and gen_attempt > 1:
-        system_prompt += f"\n\nPrevious attempt feedback: {validation_feedback}\nPlease address this in your new response."
-        temperature = 0.4
-
-    # LangFuse: Generation span (node-level)
-    gen_span = safe_generation(
-        trace, "llm-call",
+    span = safe_generation(
+        trace, "answer_agent",
         model="llama-3.3-70b-versatile",
-        model_parameters={"temperature": temperature, "max_tokens": 1024},
+        model_parameters={"temperature": 0.3, "max_tokens": 1024},
         input={
-            "system_prompt_preview": system_prompt[:300],
-            "question": question,
+            "question": question[:100],
+            "context_length": len(context),
             "generation_attempt": gen_attempt,
-            "has_context": has_context,
         }
     )
 
-    try:
-        response = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {Config.GROQ_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": "llama-3.3-70b-versatile",
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_content},
-                ],
-                "temperature": temperature,
-                "max_tokens": 1024,
-            },
-            timeout=30,
-        )
+    result = generate_answer(
+        question=question,
+        context=context,
+        chat_history=state.get("chat_history"),
+        validation_feedback=validation_feedback,
+        generation_attempt=gen_attempt,
+    )
 
-        data = response.json()
+    if "error" in result:
+        _end_span(span)
+        return {"error": result["error"], "generation_attempts": gen_attempt}
 
-        if "choices" in data:
-            answer = data["choices"][0]["message"]["content"]
-            usage = data.get("usage", {})
+    _end_span(span)
+    if span is not None:
+        try:
+            span.update(
+                output={"answer_preview": result["answer"][:200]},
+                usage={"input": result.get("usage", {}).get("prompt_tokens", 0),
+                       "output": result.get("usage", {}).get("completion_tokens", 0),
+                       "unit": "TOKENS"}
+            )
+        except Exception:
+            pass
 
-            # Update generation span with output
-            _end_span(gen_span)
-            if gen_span is not None:
-                try:
-                    gen_span.update(
-                        output={"answer_preview": answer[:200]},
-                        usage={
-                            "input": usage.get("prompt_tokens", 0),
-                            "output": usage.get("completion_tokens", 0),
-                            "unit": "TOKENS",
-                        }
-                    )
-                except Exception:
-                    pass
-
-            return {
-                "answer": answer,
-                "generation_attempts": gen_attempt,
-                "is_valid": False,  # Always False until validated
-            }
-        elif "error" in data:
-            _end_span(gen_span)
-            return {
-                "error": f"Groq API Error: {data['error']['message']}",
-                "generation_attempts": gen_attempt,
-            }
-        else:
-            _end_span(gen_span)
-            return {"error": "Unexpected API response", "generation_attempts": gen_attempt}
-    except Exception as e:
-        _end_span(gen_span)
-        logger.error(f"Generation error: {e}")
-        return {"error": str(e), "generation_attempts": gen_attempt}
+    return {
+        "answer": result.get("answer", ""),
+        "answer_usage": result.get("usage", {}),
+        "generation_attempts": gen_attempt,
+        "is_valid": False,  # Always False until validated
+    }
 
 
-# ─── Node: Validator ─────────────────────────────────────────────────────────
+# ─── Agent: Citation Agent ────────────────────────────────────────────────────
+
+def citation_agent(state: RAGState) -> dict:
+    """Agent: Build formatted references from chunks actually referenced.
+
+    NEW in Phase 12. Separates citation building from answer generation.
+    Deduplicates, sorts, and formats references.
+    """
+    from agents.citation_agent import build_citations
+
+    trace = state.get("langfuse_trace")
+    answer = state.get("answer", "")
+    unique_sources = state.get("unique_sources", [])
+
+    span = _make_span(trace, "citation_agent", {
+        "answer_length": len(answer),
+        "available_sources": len(unique_sources),
+    })
+
+    citations = build_citations(answer, unique_sources)
+
+    _end_span(span)
+    if span is not None:
+        try:
+            span.update(output={"citation_count": len(citations)})
+        except Exception:
+            pass
+
+    return {
+        "citations": citations,
+        "sources": citations,  # Backward-compat alias
+    }
+
+
+# ─── Agent: Validator ────────────────────────────────────────────────────────
 
 def validator(state: RAGState) -> dict:
-    """Node: Validate the generated answer.
+    """Agent: Validate the generated answer.
 
     Checks if the answer properly cites sources from the context.
     If not, provides feedback for a single retry.
@@ -415,9 +459,8 @@ def validator(state: RAGState) -> dict:
 
     has_context = bool(context.strip()) and context != "__NO_RESULTS__"
 
-    # LangFuse: Validation span
     trace = state.get("langfuse_trace")
-    val_span = _make_span(trace, "validation", {
+    span = _make_span(trace, "validator", {
         "has_context": has_context,
         "num_sources": len(unique_sources),
         "generation_attempt": state.get("generation_attempts", 1),
@@ -425,41 +468,36 @@ def validator(state: RAGState) -> dict:
 
     try:
         if not has_context or not unique_sources:
-            # No context to validate against — always valid
             answer_sources = _filter_sources(answer, unique_sources) if unique_sources else []
-            _end_span(val_span)
+            _end_span(span)
             return {"is_valid": True, "sources": answer_sources, "validation_feedback": ""}
 
-        # Check if answer references any sources
         sources_used = _filter_sources(answer, unique_sources)
 
         if sources_used:
-            _end_span(val_span)
+            _end_span(span)
             return {"is_valid": True, "sources": sources_used, "validation_feedback": ""}
 
-        # No sources cited — decide retry (max 1 retry per spec: Step 10)
         gen_attempts = state.get("generation_attempts", 1)
         max_gen = state.get("max_generation_attempts", 2)
 
         if gen_attempts < max_gen:
             feedback = (
-                "The previous answer did not cite any source filenames from the "
-                "provided context. Please cite the EXACT source filename "
-                "(e.g., 'According to document.pdf...') when using information "
-                "from the context."
+                "The previous answer did not cite any source filenames. "
+                "Please cite the EXACT source filename "
+                "(e.g., 'According to document.pdf...') when using information."
             )
-            logger.info(f"Validation failed (attempt {gen_attempts}/{max_gen}): no source citations")
-            _end_span(val_span)
+            logger.info(f"Validator: failed (attempt {gen_attempts}/{max_gen})")
+            _end_span(span)
             return {"is_valid": False, "sources": [], "validation_feedback": feedback}
 
-        # Max retries reached — accept as-is but no sources
-        logger.info(f"Max generation attempts reached — accepting answer without sources")
-        _end_span(val_span)
-        return {"is_valid": True, "sources": [], "validation_feedback": "Max retries reached"}
+        logger.info("Validator: max attempts reached, accepting answer")
+        _end_span(span)
+        return {"is_valid": True, "sources": [], "validation_feedback": ""}
 
     except Exception as e:
-        _end_span(val_span)
-        logger.error(f"Validation error: {e}")
+        _end_span(span)
+        logger.error(f"Validator error: {e}")
         return {"is_valid": True, "sources": [], "validation_feedback": ""}
 
 
@@ -479,7 +517,7 @@ def _filter_sources(answer: str, unique_sources: list) -> list:
 
 
 def _make_span(trace, name: str, data: dict):
-    """Safely create a LangFuse span from a trace or client."""
+    """Safely create a LangFuse span."""
     if trace is None:
         return None
     try:

@@ -120,6 +120,16 @@ def query_conversational_rag(
             if result.get("error"):
                 return {"error": result["error"]}
 
+            # Phase 12: Handle early abstention (insufficient evidence)
+            if result.get("abstain"):
+                return {
+                    "answer": result.get("verification_reason", ""),
+                    "sources": [],
+                    "no_results": True,
+                    "abstain": True,
+                    "confidence": result.get("confidence", 0),
+                }
+
             if result.get("no_results"):
                 has_active_filters = bool(
                     filter_document_ids or filter_categories or filter_tags
@@ -261,6 +271,11 @@ def query_conversational_rag_stream(
 
         if result.get("error"):
             yield f"data: {json.dumps({'type': 'error', 'message': result['error']})}\n\n"
+            return
+
+        # Phase 12: Handle early abstention (insufficient evidence)
+        if result.get("abstain"):
+            yield f"data: {json.dumps({'type': 'abstain', 'message': result.get('verification_reason', ''), 'confidence': result.get('confidence', 0)})}\n\n"
             return
 
         context = result.get("context", "")

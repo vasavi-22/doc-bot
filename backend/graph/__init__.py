@@ -1,8 +1,12 @@
 """
-LangGraph Orchestration — Phase 11
+Multi-Agent RAG Pipeline — Phase 12
 
-Transforms the linear RAG pipeline into a LangGraph-driven state machine.
-Allows conditional execution, retry loops, and node-level observability.
+Each agent has a single responsibility:
+  Query Agent → Retrieval Agent → Metadata Filter → Reranker Agent
+  → Verification Agent → Memory Manager → Answer Agent → Citation Agent
+
+Supports conditional execution, early termination on insufficient evidence,
+and per-agent LangFuse observability.
 """
 
 from .graph import build_rag_graph, get_rag_graph, run_rag_pipeline
@@ -15,3 +19,6 @@ __all__ = [
     "create_initial_state",
     "RAGState",
 ]
+
+# Backward-compatible legacy aliases (Phase 11 -> Phase 12)
+create_graph = build_rag_graph

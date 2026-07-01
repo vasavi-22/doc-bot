@@ -1,9 +1,10 @@
 """
-Phase 11 — Conditional Routing
+Phase 12 — Multi-Agent Conditional Routing
 
 Decision points that make the workflow agentic:
 1. After retrieval → should we search again with a better query?
-2. After validation → should we regenerate the answer?
+2. After verification → should we proceed or abstain?
+3. After validation → should we regenerate the answer?
 
 Routing logic is kept lightweight and deterministic where possible.
 """
@@ -13,14 +14,13 @@ from utils.logger import logger
 
 from .state import RAGState
 
-SEARCH_QUALITY_THRESHOLD = 0.3  # Minimum avg score to consider results good
-MIN_RESULTS_THRESHOLD = 2        # Minimum number of results
+SEARCH_QUALITY_THRESHOLD = 0.3
+MIN_RESULTS_THRESHOLD = 2
 
 
 def need_more_search(state: RAGState) -> Literal["sufficient", "need_more"]:
     """Router: After retrieval, decide if more context is needed.
 
-    Returns the name of the next node to route to.
     - "sufficient": results are good enough → proceed to reranker
     - "need_more": retry with a rewritten query → go to retrieve_more
     """
@@ -28,36 +28,50 @@ def need_more_search(state: RAGState) -> Literal["sufficient", "need_more"]:
     attempts = state.get("search_attempts", 0)
     max_attempts = state.get("max_search_attempts", 2)
 
-    # If no results but we haven't exhausted retries → try again
     if not chunks:
-        if attempts < max_attempts:
-            logger.info("Route: need_more (no results, retries left)")
-            return "need_more"
-        logger.info("Route: sufficient (no results, max attempts reached)")
-        return "sufficient"
+        return "need_more" if attempts < max_attempts else "sufficient"
 
-    # Check average score of top results
     top_scores = [c.get("score", 0) for c in chunks[:3]]
     avg_score = sum(top_scores) / len(top_scores) if top_scores else 0
 
-    has_enough_results = len(chunks) >= MIN_RESULTS_THRESHOLD
-    has_good_scores = avg_score >= SEARCH_QUALITY_THRESHOLD
-
-    if has_enough_results and has_good_scores:
+    if len(chunks) >= MIN_RESULTS_THRESHOLD and avg_score >= SEARCH_QUALITY_THRESHOLD:
         logger.info(f"Route: sufficient (avg_score={avg_score:.3f}, count={len(chunks)})")
         return "sufficient"
     elif attempts < max_attempts:
         logger.info(f"Route: need_more (avg_score={avg_score:.3f}, count={len(chunks)})")
         return "need_more"
     else:
-        logger.info(f"Route: sufficient (max attempts, best effort)")
+        logger.info("Route: sufficient (max attempts)")
         return "sufficient"
+
+
+def verification_result(state: RAGState) -> Literal["verified", "abstain"]:
+    """Router: After verification, decide whether to proceed or abstain.
+
+    Phase 12 enhancement — if evidence is insufficient, the graph
+    terminates early with a safe response rather than generating
+    a low-quality answer.
+
+    - "verified": evidence is sufficient → proceed to memory manager
+    - "abstain": insufficient evidence → skip to END (return early)
+    """
+    abstain = state.get("abstain", True)
+    verified = state.get("verified", False)
+    confidence = state.get("confidence", 0.0)
+
+    if abstain or not verified:
+        reason = state.get("verification_reason", "Insufficient evidence")
+        logger.info(f"Route: abstain (confidence={confidence:.2f}, reason={reason[:50]})")
+        return "abstain"
+
+    logger.info(f"Route: verified (confidence={confidence:.2f})")
+    return "verified"
 
 
 def should_retry(state: RAGState) -> Literal["regenerate", "end"]:
     """Router: After validation, decide whether to retry generation.
 
-    - "regenerate": answer didn't cite sources → go back to generator
+    - "regenerate": answer didn't cite sources → go back to answer agent
     - "end": answer is valid or max attempts reached → finish
     """
     is_valid = state.get("is_valid", True)
